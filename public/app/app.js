@@ -12,7 +12,8 @@
     expanded: new Set(),
     tvMode: false,
     soundOn: (localStorage.getItem('downAlertSound') || 'on') === 'on',
-    lastDownCount: 0
+    lastDownCount: 0,
+    emailAlert: { enabled: false, cooldownMinutes: 30, to: [] }
   };
 
 
@@ -152,6 +153,51 @@
         ? '<i class="fas fa-volume-up mr-2"></i>Sound: ON'
         : '<i class="fas fa-volume-mute mr-2"></i>Sound: OFF';
     }
+  }
+
+  async function loadEmailAlertConfig() {
+    const res = await apiFetch('/api/alerts/email');
+    if (!res.ok) throw new Error('Failed to load alert settings');
+
+    const payload = await res.json();
+    state.emailAlert = payload.alert || { enabled: false, cooldownMinutes: 30, to: [] };
+
+    if ($('emailAlertsEnabled')) $('emailAlertsEnabled').checked = !!state.emailAlert.enabled;
+    if ($('emailAlertsCooldown')) $('emailAlertsCooldown').value = Number(state.emailAlert.cooldownMinutes || 30);
+    if ($('emailAlertsTo')) $('emailAlertsTo').value = (state.emailAlert.to || []).join(', ');
+  }
+
+  async function openEmailAlertsModal() {
+    try {
+      await loadEmailAlertConfig();
+      openModal('emailAlertsModal');
+    } catch (e) {
+      alert(e?.message || 'Failed to load alert settings');
+    }
+  }
+
+  async function saveEmailAlerts(e) {
+    e.preventDefault();
+    const enabled = !!$('emailAlertsEnabled')?.checked;
+    const cooldownMinutes = Number($('emailAlertsCooldown')?.value || 30);
+    const rawRecipients = String($('emailAlertsTo')?.value || '');
+    const to = rawRecipients.split(',').map((x) => x.trim()).filter(Boolean);
+
+    const res = await apiFetch('/api/alerts/email', {
+      method: 'PUT',
+      body: { enabled, cooldownMinutes, to }
+    });
+
+    if (!res.ok) {
+      const msg = (await res.json().catch(() => null))?.error || `Failed (${res.status})`;
+      alert(msg);
+      return;
+    }
+
+    const payload = await res.json();
+    state.emailAlert = payload.alert || { enabled: false, cooldownMinutes: 30, to: [] };
+    closeModal('emailAlertsModal');
+    alert('Email alert settings saved.');
   }
 
   function openModal(id) {
@@ -599,6 +645,10 @@ function statusClass(status) {
     $('testDeviceNow')?.addEventListener('click', testCurrentDevice);
 
     $('soundToggle')?.addEventListener('click', toggleDownAlertSound);
+    $('emailAlertsBtn')?.addEventListener('click', openEmailAlertsModal);
+    $('closeEmailAlertsModal')?.addEventListener('click', () => closeModal('emailAlertsModal'));
+    $('cancelEmailAlerts')?.addEventListener('click', () => closeModal('emailAlertsModal'));
+    $('emailAlertsForm')?.addEventListener('submit', saveEmailAlerts);
 
     $('storeSortSelect')?.addEventListener('change', renderProjects);
     $('storeFilterSelect')?.addEventListener('change', renderProjects);

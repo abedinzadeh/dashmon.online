@@ -441,6 +441,91 @@ router.delete('/api/devices/:deviceId', requireAuth, async (req, res) => {
 });
 
 
+
+// --- Email alert configuration ---
+router.get('/api/alerts/email', requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT enabled, cooldown_minutes, rules
+       FROM alerts
+       WHERE user_id=$1 AND type='email'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [req.user.id]
+    );
+
+    const cfg = rows[0];
+    const to = Array.isArray(cfg?.rules?.to)
+      ? cfg.rules.to.filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim())
+      : [];
+
+    res.json({
+      alert: {
+        enabled: Boolean(cfg?.enabled),
+        cooldownMinutes: Number(cfg?.cooldown_minutes || 30),
+        to
+      }
+    });
+  } catch (e) {
+    console.error('Error fetching email alert config:', e);
+    res.status(500).json({ error: 'Failed to fetch email alert config' });
+  }
+});
+
+router.put('/api/alerts/email', requireAuth, async (req, res) => {
+  const body = req.body || {};
+  const enabled = body.enabled === true;
+  const cooldownRaw = Number(body.cooldownMinutes);
+  const cooldownMinutes = Number.isFinite(cooldownRaw) ? Math.floor(cooldownRaw) : 30;
+  if (cooldownMinutes < 1 || cooldownMinutes > 10080) {
+    return res.status(400).json({ error: 'cooldownMinutes must be between 1 and 10080' });
+  }
+
+  const to = Array.isArray(body.to)
+    ? body.to
+    : typeof body.to === 'string'
+      ? body.to.split(',')
+      : [];
+
+  const emails = [];
+  const seen = new Set();
+  for (const raw of to) {
+    const email = String(raw || '').trim().toLowerCase();
+    if (!email) continue;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: `Invalid email address: ${email}` });
+    }
+    if (seen.has(email)) continue;
+    seen.add(email);
+    emails.push(email);
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO alerts (user_id, type, enabled, rules, cooldown_minutes)
+       VALUES ($1, 'email', $2, $3::jsonb, $4)
+       ON CONFLICT (user_id, type)
+       DO UPDATE SET
+         enabled = EXCLUDED.enabled,
+         rules = EXCLUDED.rules,
+         cooldown_minutes = EXCLUDED.cooldown_minutes
+       RETURNING enabled, cooldown_minutes, rules`,
+      [req.user.id, enabled, JSON.stringify({ to: emails }), cooldownMinutes]
+    );
+
+    res.json({
+      alert: {
+        enabled: Boolean(rows[0].enabled),
+        cooldownMinutes: Number(rows[0].cooldown_minutes),
+        to: Array.isArray(rows[0].rules?.to) ? rows[0].rules.to : []
+      }
+    });
+  } catch (e) {
+    console.error('Error updating email alert config:', e);
+    res.status(500).json({ error: 'Failed to update email alert config' });
+  }
+});
+
 // --- Metrics for dashboard charts ---
 router.get('/api/metrics/down-events', requireAuth, async (req, res) => {
   const hours = Math.min(Number(req.query.hours || 24) || 24, 168); // up to 7 days
