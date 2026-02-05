@@ -240,8 +240,11 @@ function statusClass(status) {
     }
     state.lastDownCount = sum.down;
 
-    const lastUpdated = $('tvLastUpdated');
-    if (lastUpdated) lastUpdated.textContent = new Date().toLocaleTimeString();
+    const now = new Date().toLocaleTimeString();
+    const tvLastUpdated = $('tvLastUpdated');
+    if (tvLastUpdated) tvLastUpdated.textContent = now;
+    const dashboardLastUpdated = $('lastUpdated');
+    if (dashboardLastUpdated) dashboardLastUpdated.textContent = now;
   }
 
   function updateSummaryUI() {
@@ -261,14 +264,16 @@ function statusClass(status) {
   }
 
   function sortProjects(list) {
-    const sort = $('storeSortSelect') ? $('storeSortSelect').value : 'name';
+    const sort = $('storeSortSelect') ? $('storeSortSelect').value : 'default';
     const arr = [...list];
     if (sort === 'downDevices') {
       arr.sort((a, b) => (b.downDevices || 0) - (a.downDevices || 0));
     } else if (sort === 'id') {
       arr.sort((a, b) => String(a.id).localeCompare(String(b.id)));
-    } else {
-      arr.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    } else if (sort === 'location') {
+      arr.sort((a, b) => String(a.location || '').localeCompare(String(b.location || '')));
+    } else if (sort === 'name') {
+      arr.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
     }
     return arr;
   }
@@ -281,8 +286,8 @@ function statusClass(status) {
 
   function renderProjects() {
     const container = $('projectsContainer');
-    const tvLeft = $('tvStoresLeft');
-    const tvRight = $('tvStoresRight');
+    const tvLeft = $('tvProjectsLeft') || $('tvStoresLeft');
+    const tvRight = $('tvProjectsRight') || $('tvStoresRight');
     if (!container) return;
 
     const filtered = sortProjects(filterProjects(state.projects));

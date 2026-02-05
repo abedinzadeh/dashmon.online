@@ -143,6 +143,11 @@
     $('modalStoreId').value = project.id;
 
     const dr = await apiFetch('/api/projects/' + encodeURIComponent(projectId) + '/devices');
+    if(!dr.ok){
+      if(dr.status===401){ location.href='/login.html'; return; }
+      $('devicesList').innerHTML='<div class="text-red-400">Failed to load devices</div>';
+      return;
+    }
     devicesCache = (await dr.json()).devices || [];
     const devices = devicesCache;
 
