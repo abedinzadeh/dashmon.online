@@ -1,18 +1,14 @@
 const express = require('express');
 const { pool } = require('./db');
 const { requireAuth } = require('./auth');
-<<<<<<< HEAD
 const { getPlanLimits, enforceProjectLimitForUser } = require('./plan-limits');
-=======
 const { getPlanLimits: resolvePlanLimits, enforceProjectLimitForUser, getUserPlanFromDb } = require('./plan-limits');
->>>>>>> 6b39afa (Avoid plan helper name collision after manual merges)
 const { createMemoryRateLimiter } = require('./rate-limit');
 
 const router = express.Router();
 router.use(express.json());
 
 
-<<<<<<< HEAD
 const PLAN_LIMITS = {
   free: { projects: 3, devicesPerProject: 15 },
   premium: { projects: 10, devicesPerProject: 15 }
@@ -74,7 +70,6 @@ async function enforceProjectLimitForUser(userId) {
     overLimit: Number(projectCountRows[0]?.count || 0) >= maxProjects
   };
 }
-=======
 const writeRateLimiter = createMemoryRateLimiter({
   windowMs: 60 * 1000,
   maxRequests: (req) => (req.user?.plan === 'premium' ? 120 : 60),
@@ -86,7 +81,6 @@ router.use((req, res, next) => {
   if (!['POST', 'PUT', 'DELETE'].includes(req.method)) return next();
   return writeRateLimiter(req, res, next);
 });
->>>>>>> 6b39afa (Avoid plan helper name collision after manual merges)
 
 // --- Auth / session helpers ---
 router.get('/api/me', requireAuth, (req, res) => {
@@ -197,11 +191,8 @@ router.post('/api/projects', requireAuth, async (req, res) => {
   if (!name || !id) return res.status(400).json({ error: 'Project name and Project ID are required' });
 
   try {
-<<<<<<< HEAD
     const projectLimit = await enforceProjectLimitForUser(req.user.id);
-=======
     const projectLimit = await enforceProjectLimitForUser(pool, req.user.id);
->>>>>>> 6b39afa (Avoid plan helper name collision after manual merges)
     if (projectLimit.overLimit) {
       return res.status(400).json({
         error: `Plan limit reached. Your plan allows ${projectLimit.maxProjects} projects.`
@@ -232,12 +223,8 @@ router.post('/api/stores', requireAuth, async (req, res) => {
   const { name, id, location, notes } = req.body || {};
   if (!name || !id) return res.status(400).json({ error: 'Store name and ID are required' });
 
-  try {
-<<<<<<< HEAD
-    const projectLimit = await enforceProjectLimitForUser(req.user.id);
-=======
+  try { const projectLimit = await enforceProjectLimitForUser(req.user.id);
     const projectLimit = await enforceProjectLimitForUser(pool, req.user.id);
->>>>>>> 6b39afa (Avoid plan helper name collision after manual merges)
     if (projectLimit.overLimit) {
       return res.status(400).json({
         error: `Plan limit reached. Your plan allows ${projectLimit.maxProjects} projects.`
@@ -357,12 +344,9 @@ router.post('/api/projects/:projectId/devices', requireAuth, async (req, res) =>
       'SELECT COUNT(*)::int AS count FROM devices WHERE store_id=$1 AND user_id=$2',
       [projectId, req.user.id]
     );
-<<<<<<< HEAD
     const { devicesPerProject: maxDevices } = getPlanLimits(req.user.plan);
-=======
     const dbPlan = await getUserPlanFromDb(pool, req.user.id);
     const { devicesPerProject: maxDevices } = resolvePlanLimits(dbPlan);
->>>>>>> 6b39afa (Avoid plan helper name collision after manual merges)
     if (countRows[0].count >= maxDevices) {
       return res.status(400).json({
         error: `Plan limit reached. Your plan allows ${maxDevices} devices per project.`
@@ -404,12 +388,9 @@ router.post('/api/stores/:storeId/devices', requireAuth, async (req, res) => {
       'SELECT COUNT(*)::int AS count FROM devices WHERE store_id=$1 AND user_id=$2',
       [storeId, req.user.id]
     );
-<<<<<<< HEAD
     const { devicesPerProject: maxDevices } = getPlanLimits(req.user.plan);
-=======
     const dbPlan = await getUserPlanFromDb(pool, req.user.id);
     const { devicesPerProject: maxDevices } = resolvePlanLimits(dbPlan);
->>>>>>> 6b39afa (Avoid plan helper name collision after manual merges)
     if (countRows[0].count >= maxDevices) {
       return res.status(400).json({
         error: `Plan limit reached. Your plan allows ${maxDevices} devices per project.`
