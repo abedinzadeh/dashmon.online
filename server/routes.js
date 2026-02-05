@@ -1,9 +1,24 @@
 const express = require('express');
 const { pool } = require('./db');
 const { requireAuth } = require('./auth');
+const { getPlanLimits: resolvePlanLimits, enforceProjectLimitForUser, getUserPlanFromDb } = require('./plan-limits');
+const { createMemoryRateLimiter } = require('./rate-limit');
 
 const router = express.Router();
 router.use(express.json());
+
+
+const writeRateLimiter = createMemoryRateLimiter({
+  windowMs: 60 * 1000,
+  maxRequests: (req) => (req.user?.plan === 'premium' ? 120 : 60),
+  keyFn: (req) => `${req.user?.id || req.ip || 'anon'}:${req.path}`,
+  message: 'Too many write requests. Please slow down.'
+});
+
+router.use((req, res, next) => {
+  if (!['POST', 'PUT', 'DELETE'].includes(req.method)) return next();
+  return writeRateLimiter(req, res, next);
+});
 
 // --- Auth / session helpers ---
 router.get('/api/me', requireAuth, (req, res) => {
@@ -114,6 +129,13 @@ router.post('/api/projects', requireAuth, async (req, res) => {
   if (!name || !id) return res.status(400).json({ error: 'Project name and Project ID are required' });
 
   try {
+    const projectLimit = await enforceProjectLimitForUser(pool, req.user.id);
+    if (projectLimit.overLimit) {
+      return res.status(400).json({
+        error: `Plan limit reached. Your plan allows ${projectLimit.maxProjects} projects.`
+      });
+    }
+
     const existing = await pool.query(
       'SELECT 1 FROM stores WHERE user_id=$1 AND id=$2',
       [req.user.id, id]
@@ -139,6 +161,13 @@ router.post('/api/stores', requireAuth, async (req, res) => {
   if (!name || !id) return res.status(400).json({ error: 'Store name and ID are required' });
 
   try {
+    const projectLimit = await enforceProjectLimitForUser(pool, req.user.id);
+    if (projectLimit.overLimit) {
+      return res.status(400).json({
+        error: `Plan limit reached. Your plan allows ${projectLimit.maxProjects} projects.`
+      });
+    }
+
     const existing = await pool.query(
       'SELECT 1 FROM stores WHERE user_id=$1 AND id=$2',
       [req.user.id, id]
@@ -252,10 +281,11 @@ router.post('/api/projects/:projectId/devices', requireAuth, async (req, res) =>
       'SELECT COUNT(*)::int AS count FROM devices WHERE store_id=$1 AND user_id=$2',
       [projectId, req.user.id]
     );
-    const maxDevices = req.user.plan === 'premium' ? 100 : 20;
+    const dbPlan = await getUserPlanFromDb(pool, req.user.id);
+    const { devicesPerProject: maxDevices } = resolvePlanLimits(dbPlan);
     if (countRows[0].count >= maxDevices) {
       return res.status(400).json({
-        error: `Plan limit reached. Free plan allows ${maxDevices} devices per project. Upgrade to Premium.`
+        error: `Plan limit reached. Your plan allows ${maxDevices} devices per project.`
       });
     }
 
@@ -294,10 +324,11 @@ router.post('/api/stores/:storeId/devices', requireAuth, async (req, res) => {
       'SELECT COUNT(*)::int AS count FROM devices WHERE store_id=$1 AND user_id=$2',
       [storeId, req.user.id]
     );
-    const maxDevices = req.user.plan === 'premium' ? 100 : 20;
+    const dbPlan = await getUserPlanFromDb(pool, req.user.id);
+    const { devicesPerProject: maxDevices } = resolvePlanLimits(dbPlan);
     if (countRows[0].count >= maxDevices) {
       return res.status(400).json({
-        error: `Plan limit reached. Free plan allows ${maxDevices} devices per store. Upgrade to Premium.`
+        error: `Plan limit reached. Your plan allows ${maxDevices} devices per project.`
       });
     }
 
@@ -342,6 +373,10 @@ router.get('/api/projects/:projectId/devices/:deviceId', requireAuth, async (req
 router.post('/api/devices/:deviceId/test-now', requireAuth, async (req, res) => {
   const { deviceId } = req.params;
   try {
+    const dbPlan = await getUserPlanFromDb(pool, req.user.id);
+    if (dbPlan !== 'premium') {
+      return res.status(403).json({ error: 'Manual test is available on Premium plan only' });
+    }
     const { rows } = await pool.query(
       'UPDATE devices SET last_check = now() - interval \'365 days\' WHERE id=$1 AND user_id=$2 RETURNING id',
       [deviceId, req.user.id]
@@ -358,7 +393,11 @@ router.post('/api/devices/:deviceId/test-now', requireAuth, async (req, res) => 
 // --- Device history (for graphs) ---
 router.get('/api/devices/:deviceId/history', requireAuth, async (req, res) => {
   const { deviceId } = req.params;
-  const limit = Math.min(Number(req.query.limit || 60) || 60, 500);
+  const requestedLimit = Number(req.query.limit || 60);
+  if (!Number.isFinite(requestedLimit) || requestedLimit < 1) {
+    return res.status(400).json({ error: 'limit must be a positive number' });
+  }
+  const limit = Math.min(Math.floor(requestedLimit), 500);
   try {
     // Ownership enforced by join on devices.user_id
     const { rows: deviceRows } = await pool.query(
@@ -367,15 +406,32 @@ router.get('/api/devices/:deviceId/history', requireAuth, async (req, res) => {
     );
     if (!deviceRows.length) return res.status(404).json({ error: 'Device not found' });
 
-    const { rows } = await pool.query(
-      `SELECT ts, status, latency_ms, status_code, detail
-       FROM device_history
-       WHERE device_id=$1
-       ORDER BY ts DESC
-       LIMIT $2`,
-      [deviceId, limit]
-    );
-    res.json({ history: rows.reverse() }); // oldest->newest for charts
+    let historyRows;
+    try {
+      const { rows } = await pool.query(
+        `SELECT ts, status, latency_ms, status_code, detail
+         FROM device_history
+         WHERE device_id=$1
+         ORDER BY ts DESC
+         LIMIT $2`,
+        [deviceId, limit]
+      );
+      historyRows = rows;
+    } catch (historyErr) {
+      if (historyErr && historyErr.code !== '42703') throw historyErr;
+
+      const { rows } = await pool.query(
+        `SELECT timestamp AS ts, status, latency AS latency_ms, NULL::int AS status_code, detail
+         FROM device_history
+         WHERE device_id=$1
+         ORDER BY timestamp DESC
+         LIMIT $2`,
+        [deviceId, limit]
+      );
+      historyRows = rows;
+    }
+
+    res.json({ history: historyRows.reverse() }); // oldest->newest for charts
   } catch (e) {
     console.error('Error fetching device history:', e);
     res.status(500).json({ error: 'Failed to fetch device history' });
@@ -420,26 +476,163 @@ router.delete('/api/devices/:deviceId', requireAuth, async (req, res) => {
 });
 
 
+
+// --- Email alert configuration ---
+router.get('/api/alerts/email', requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT enabled, cooldown_minutes, rules
+       FROM alerts
+       WHERE user_id=$1 AND type='email'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [req.user.id]
+    );
+
+    const cfg = rows[0];
+    const to = Array.isArray(cfg?.rules?.to)
+      ? cfg.rules.to.filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim())
+      : [];
+
+    res.json({
+      alert: {
+        enabled: Boolean(cfg?.enabled),
+        cooldownMinutes: Number(cfg?.cooldown_minutes || 30),
+        to
+      }
+    });
+  } catch (e) {
+    console.error('Error fetching email alert config:', e);
+    res.status(500).json({ error: 'Failed to fetch email alert config' });
+  }
+});
+
+router.put('/api/alerts/email', requireAuth, async (req, res) => {
+  const body = req.body || {};
+  const enabled = body.enabled === true;
+  const cooldownRaw = Number(body.cooldownMinutes);
+  const cooldownMinutes = Number.isFinite(cooldownRaw) ? Math.floor(cooldownRaw) : 30;
+  if (cooldownMinutes < 1 || cooldownMinutes > 10080) {
+    return res.status(400).json({ error: 'cooldownMinutes must be between 1 and 10080' });
+  }
+
+  const to = Array.isArray(body.to)
+    ? body.to
+    : typeof body.to === 'string'
+      ? body.to.split(',')
+      : [];
+
+  const emails = [];
+  const seen = new Set();
+  for (const raw of to) {
+    const email = String(raw || '').trim().toLowerCase();
+    if (!email) continue;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: `Invalid email address: ${email}` });
+    }
+    if (seen.has(email)) continue;
+    seen.add(email);
+    emails.push(email);
+  }
+
+  try {
+    let rows;
+    try {
+      const result = await pool.query(
+        `INSERT INTO alerts (user_id, type, enabled, rules, cooldown_minutes)
+         VALUES ($1, 'email', $2, $3::jsonb, $4)
+         ON CONFLICT (user_id, type)
+         DO UPDATE SET
+           enabled = EXCLUDED.enabled,
+           rules = EXCLUDED.rules,
+           cooldown_minutes = EXCLUDED.cooldown_minutes
+         RETURNING enabled, cooldown_minutes, rules`,
+        [req.user.id, enabled, JSON.stringify({ to: emails }), cooldownMinutes]
+      );
+      rows = result.rows;
+    } catch (upsertErr) {
+      // Existing databases may not yet have UNIQUE(user_id,type) index.
+      if (!upsertErr || upsertErr.code !== '42P10') throw upsertErr;
+
+      const updated = await pool.query(
+        `UPDATE alerts
+         SET enabled=$1, rules=$2::jsonb, cooldown_minutes=$3
+         WHERE user_id=$4 AND type='email'
+         RETURNING enabled, cooldown_minutes, rules`,
+        [enabled, JSON.stringify({ to: emails }), cooldownMinutes, req.user.id]
+      );
+
+      if (updated.rows.length) {
+        rows = updated.rows;
+      } else {
+        const inserted = await pool.query(
+          `INSERT INTO alerts (user_id, type, enabled, rules, cooldown_minutes)
+           VALUES ($1, 'email', $2, $3::jsonb, $4)
+           RETURNING enabled, cooldown_minutes, rules`,
+          [req.user.id, enabled, JSON.stringify({ to: emails }), cooldownMinutes]
+        );
+        rows = inserted.rows;
+      }
+    }
+
+    res.json({
+      alert: {
+        enabled: Boolean(rows[0].enabled),
+        cooldownMinutes: Number(rows[0].cooldown_minutes),
+        to: Array.isArray(rows[0].rules?.to) ? rows[0].rules.to : []
+      }
+    });
+  } catch (e) {
+    console.error('Error updating email alert config:', e);
+    res.status(500).json({ error: 'Failed to update email alert config' });
+  }
+});
+
 // --- Metrics for dashboard charts ---
 router.get('/api/metrics/down-events', requireAuth, async (req, res) => {
   const hours = Math.min(Number(req.query.hours || 24) || 24, 168); // up to 7 days
   try {
-    const { rows } = await pool.query(
-      `SELECT date_trunc('hour', h.ts) AS bucket, COUNT(*)::int AS down_events
-       FROM device_history h
-       JOIN devices d ON d.id = h.device_id
-       WHERE d.user_id=$1
-         AND h.ts >= now() - ($2 || ' hours')::interval
-         AND h.status='down'
-       GROUP BY bucket
-       ORDER BY bucket ASC`,
-      [req.user.id, String(hours)]
-    );
+    let rows;
+    try {
+      const result = await pool.query(
+        `SELECT date_trunc('hour', h.ts) AS bucket, COUNT(*)::int AS down_events
+         FROM device_history h
+         JOIN devices d ON d.id = h.device_id
+         WHERE d.user_id=$1
+           AND h.ts >= now() - ($2 || ' hours')::interval
+           AND h.status='down'
+         GROUP BY bucket
+         ORDER BY bucket ASC`,
+        [req.user.id, String(hours)]
+      );
+      rows = result.rows;
+    } catch (metricsErr) {
+      if (metricsErr && metricsErr.code !== '42703') throw metricsErr;
+
+      const result = await pool.query(
+        `SELECT date_trunc('hour', h.timestamp) AS bucket, COUNT(*)::int AS down_events
+         FROM device_history h
+         JOIN devices d ON d.id = h.device_id
+         WHERE d.user_id=$1
+           AND h.timestamp >= now() - ($2 || ' hours')::interval
+           AND h.status='down'
+         GROUP BY bucket
+         ORDER BY bucket ASC`,
+        [req.user.id, String(hours)]
+      );
+      rows = result.rows;
+    }
+
     res.json({ points: rows.map(r => ({ ts: r.bucket, value: r.down_events })) });
   } catch (e) {
     console.error('Error metrics down-events:', e);
     res.status(500).json({ error: 'Failed to fetch metrics' });
   }
+});
+
+// Ensure unknown API routes return JSON (not HTML)
+router.use('/api', (_req, res) => {
+  res.status(404).json({ error: 'Not found' });
 });
 
 module.exports = { router };

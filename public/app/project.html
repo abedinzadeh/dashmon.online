@@ -10,11 +10,11 @@
 </head>
 <body class="bg-gray-900 text-white min-h-screen">
   <div class="max-w-6xl mx-auto px-4 py-6">
-    <div class="flex items-center justify-between gap-4">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
       <a href="/app/" class="text-gray-300 hover:text-white font-medium">
         <i class="fas fa-arrow-left mr-2"></i>Back to Dashboard
       </a>
-      <div class="flex items-center gap-3">
+      <div class="flex flex-wrap items-center gap-3">
         <span id="userPlanBadge" class="px-2 py-1 rounded-full text-xs font-bold bg-gray-700">FREE</span>
         <button id="logoutBtn" class="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 font-semibold">
           <i class="fas fa-sign-out-alt mr-2"></i>Logout
@@ -29,9 +29,14 @@
           <div class="text-gray-400 text-sm mt-1">Project ID: <span id="projectId"></span></div>
           <div id="projectLocation" class="text-gray-400 text-sm mt-1"></div>
         </div>
-        <button id="addDeviceBtn" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 font-semibold">
-          <i class="fas fa-plus mr-2"></i>Add Device
-        </button>
+        <div class="flex flex-wrap gap-2">
+          <button id="projectEmailAlertsBtn" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-semibold">
+            <i class="fas fa-envelope mr-2"></i>Email Alerts
+          </button>
+          <button id="addDeviceBtn" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 font-semibold">
+            <i class="fas fa-plus mr-2"></i>Add Device
+          </button>
+        </div>
       </div>
     </div>
 
@@ -98,6 +103,39 @@
     </div>
   </div>
 
+  <!-- Email Alerts Modal -->
+  <div id="projectEmailAlertsModal" class="fixed inset-0 hidden items-center justify-center bg-black/60 p-4">
+    <div class="w-full max-w-2xl rounded-2xl bg-gray-900 border border-gray-700 p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-xl font-bold">Email Alerts</h2>
+        <button id="projectCloseEmailAlertsModal" class="text-2xl text-gray-400 hover:text-white">&times;</button>
+      </div>
+
+      <form id="projectEmailAlertsForm" class="space-y-4">
+        <label class="flex items-center gap-3">
+          <input id="projectEmailAlertsEnabled" type="checkbox" class="h-4 w-4" />
+          <span class="font-medium">Enable UP/DOWN transition emails</span>
+        </label>
+
+        <div>
+          <label class="block text-sm mb-1">Recipients (comma separated)</label>
+          <textarea id="projectEmailAlertsTo" rows="3" class="w-full p-3 rounded-lg bg-gray-800 border border-gray-700" placeholder="ops@example.com, team@example.com"></textarea>
+          <div class="text-xs text-gray-400 mt-1">Leave blank to send to your login email.</div>
+        </div>
+
+        <div>
+          <label class="block text-sm mb-1">Cooldown (minutes)</label>
+          <input id="projectEmailAlertsCooldown" type="number" min="1" max="10080" value="30" class="w-full p-3 rounded-lg bg-gray-800 border border-gray-700" />
+        </div>
+
+        <div class="flex justify-end gap-3 pt-2">
+          <button type="button" id="projectCancelEmailAlerts" class="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700">Cancel</button>
+          <button type="submit" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 font-semibold">Save Alerts</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
 <script>
 (function(){
   const $ = (id)=>document.getElementById(id);
@@ -143,6 +181,11 @@
     $('modalStoreId').value = project.id;
 
     const dr = await apiFetch('/api/projects/' + encodeURIComponent(projectId) + '/devices');
+    if(!dr.ok){
+      if(dr.status===401){ location.href='/login.html'; return; }
+      $('devicesList').innerHTML='<div class="text-red-400">Failed to load devices</div>';
+      return;
+    }
     devicesCache = (await dr.json()).devices || [];
     const devices = devicesCache;
 
@@ -306,6 +349,39 @@
   }
 
 
+  function openEmailAlertsModal(){ $('projectEmailAlertsModal').classList.remove('hidden'); $('projectEmailAlertsModal').classList.add('flex'); }
+  function closeEmailAlertsModal(){ $('projectEmailAlertsModal').classList.add('hidden'); $('projectEmailAlertsModal').classList.remove('flex'); }
+
+  async function loadEmailAlertConfig(){
+    const r = await apiFetch('/api/alerts/email');
+    if(!r.ok){ alert('Failed to load alert settings'); return false; }
+    const cfg = (await r.json()).alert || { enabled:false, cooldownMinutes:30, to:[] };
+    $('projectEmailAlertsEnabled').checked = !!cfg.enabled;
+    $('projectEmailAlertsCooldown').value = Number(cfg.cooldownMinutes || 30);
+    $('projectEmailAlertsTo').value = Array.isArray(cfg.to) ? cfg.to.join(', ') : '';
+    return true;
+  }
+
+  async function openProjectEmailAlerts(){
+    const ok = await loadEmailAlertConfig();
+    if(ok) openEmailAlertsModal();
+  }
+
+  async function saveProjectEmailAlerts(e){
+    e.preventDefault();
+    const enabled = !!$('projectEmailAlertsEnabled').checked;
+    const cooldownMinutes = Number($('projectEmailAlertsCooldown').value || 30);
+    const to = String($('projectEmailAlertsTo').value || '').split(',').map(x=>x.trim()).filter(Boolean);
+    const r = await apiFetch('/api/alerts/email', { method:'PUT', body:{ enabled, cooldownMinutes, to } });
+    if(!r.ok){
+      const msg=(await r.json().catch(()=>null))?.error || `Failed (${r.status})`;
+      alert(msg);
+      return;
+    }
+    closeEmailAlertsModal();
+    alert('Email alert settings saved.');
+  }
+
   function openModal(){ $('deviceModal').classList.remove('hidden'); $('deviceModal').classList.add('flex'); }
   function closeModal(){ $('deviceModal').classList.add('hidden'); $('deviceModal').classList.remove('flex'); }
 
@@ -344,6 +420,10 @@
     if(!await checkAuth()) return;
     $('logoutBtn').addEventListener('click', logout);
     $('addDeviceBtn').addEventListener('click', openModal);
+    $('projectEmailAlertsBtn').addEventListener('click', openProjectEmailAlerts);
+    $('projectCloseEmailAlertsModal').addEventListener('click', closeEmailAlertsModal);
+    $('projectCancelEmailAlerts').addEventListener('click', closeEmailAlertsModal);
+    $('projectEmailAlertsForm').addEventListener('submit', saveProjectEmailAlerts);
     $('closeDeviceModal').addEventListener('click', closeModal);
     $('cancelDevice').addEventListener('click', closeModal);
     $('deviceForm').addEventListener('submit', addDevice);
