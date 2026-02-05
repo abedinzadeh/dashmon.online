@@ -424,6 +424,10 @@ router.post('/api/devices/:deviceId/test-now', requireAuth, async (req, res) => 
     return res.status(403).json({ error: 'Manual test is available on Premium plan only' });
   }
   try {
+    const dbPlan = await getUserPlanFromDb(pool, req.user.id);
+    if (dbPlan !== 'premium') {
+      return res.status(403).json({ error: 'Manual test is available on Premium plan only' });
+    }
     const { rows } = await pool.query(
       'UPDATE devices SET last_check = now() - interval \'365 days\' WHERE id=$1 AND user_id=$2 RETURNING id',
       [deviceId, req.user.id]
