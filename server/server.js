@@ -6,6 +6,7 @@ const RedisStore = require('connect-redis').default;
 
 const { passport } = require('./auth');
 const { router } = require('./routes');
+const { createMemoryRateLimiter } = require('./rate-limit');
 
 const app = express();
 
