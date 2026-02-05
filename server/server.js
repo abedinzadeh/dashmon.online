@@ -33,6 +33,7 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 
+<<<<<<< HEAD
 const authRateState = new Map();
 function authRateLimit(req, res, next) {
   const key = `${req.ip || 'unknown'}:${req.path}`;
@@ -55,6 +56,14 @@ function authRateLimit(req, res, next) {
 
   return next();
 }
+=======
+const authRateLimit = createMemoryRateLimiter({
+  windowMs: 60 * 1000,
+  maxRequests: 20,
+  keyFn: (req) => `${req.ip || 'unknown'}:${req.path}`,
+  message: 'Too many auth requests. Please retry later.'
+});
+>>>>>>> 6b39afa (Avoid plan helper name collision after manual merges)
 
 // Auth routes
 app.get('/auth/google', authRateLimit,
