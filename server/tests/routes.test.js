@@ -263,6 +263,39 @@ test('PUT /api/alerts/email validates and normalizes config', async () => {
   assert.equal(calls[0].params[2], '{"to":["ops@example.com"]}');
 });
 
+test('PUT /api/alerts/email supports legacy DBs without unique alerts index', async () => {
+  const calls = [];
+  const poolMock = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes('INSERT INTO alerts') && sql.includes('ON CONFLICT')) {
+        const err = new Error('there is no unique or exclusion constraint matching the ON CONFLICT specification');
+        err.code = '42P10';
+        throw err;
+      }
+      if (sql.includes('UPDATE alerts')) {
+        return { rows: [] };
+      }
+      if (sql.includes('INSERT INTO alerts') && !sql.includes('ON CONFLICT')) {
+        return { rows: [{ enabled: false, cooldown_minutes: 30, rules: { to: [] } }] };
+      }
+      throw new Error('Unexpected SQL in legacy alerts upsert test');
+    }
+  };
+
+  const router = buildRouterWithMocks(poolMock);
+  const handler = findHandler(router, 'put', '/api/alerts/email');
+
+  const req = { user: { id: 'user-1' }, body: { enabled: false, cooldownMinutes: 30, to: [] } };
+  const res = createRes();
+  await handler(req, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.payload, { alert: { enabled: false, cooldownMinutes: 30, to: [] } });
+  assert.ok(calls.some((c) => c.sql.includes('UPDATE alerts')));
+  assert.ok(calls.some((c) => c.sql.includes('INSERT INTO alerts') && !c.sql.includes('ON CONFLICT')));
+});
+
 test('PUT /api/alerts/email rejects invalid email address', async () => {
   const poolMock = {
     async query() {
@@ -287,6 +320,9 @@ test('POST /api/projects enforces free-plan project limit', async () => {
   const poolMock = {
     async query(sql) {
       queryCount += 1;
+      if (sql.includes('SELECT plan FROM users')) {
+        return { rows: [{ plan: 'free' }] };
+      }
       if (sql.includes('COUNT(*)::int AS count FROM stores')) {
         return { rows: [{ count: 3 }] };
       }
@@ -307,7 +343,7 @@ test('POST /api/projects enforces free-plan project limit', async () => {
 
   assert.equal(res.statusCode, 400);
   assert.deepEqual(res.payload, { error: 'Plan limit reached. Your plan allows 3 projects.' });
-  assert.equal(queryCount, 1);
+  assert.equal(queryCount, 2);
 });
 
 test('POST /api/projects/:projectId/devices enforces per-project device limit', async () => {

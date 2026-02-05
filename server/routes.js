@@ -43,6 +43,31 @@ function getPlanLimits(plan) {
   return plan === 'premium' ? PLAN_LIMITS.premium : PLAN_LIMITS.free;
 }
 
+function normalizePlan(plan) {
+  const v = String(plan || '').trim().toLowerCase();
+  return v === 'premium' ? 'premium' : 'free';
+}
+
+async function getUserPlanFromDb(userId) {
+  const { rows } = await pool.query('SELECT plan FROM users WHERE id=$1', [userId]);
+  return normalizePlan(rows[0]?.plan);
+}
+
+async function enforceProjectLimitForUser(userId) {
+  const dbPlan = await getUserPlanFromDb(userId);
+  const { projects: maxProjects } = getPlanLimits(dbPlan);
+  const { rows: projectCountRows } = await pool.query(
+    'SELECT COUNT(*)::int AS count FROM stores WHERE user_id=$1',
+    [userId]
+  );
+
+  return {
+    maxProjects,
+    count: Number(projectCountRows[0]?.count || 0),
+    overLimit: Number(projectCountRows[0]?.count || 0) >= maxProjects
+  };
+}
+
 // --- Auth / session helpers ---
 router.get('/api/me', requireAuth, (req, res) => {
   res.json({
@@ -152,14 +177,10 @@ router.post('/api/projects', requireAuth, async (req, res) => {
   if (!name || !id) return res.status(400).json({ error: 'Project name and Project ID are required' });
 
   try {
-    const { projects: maxProjects } = getPlanLimits(req.user.plan);
-    const { rows: projectCountRows } = await pool.query(
-      'SELECT COUNT(*)::int AS count FROM stores WHERE user_id=$1',
-      [req.user.id]
-    );
-    if (projectCountRows[0].count >= maxProjects) {
+    const projectLimit = await enforceProjectLimitForUser(req.user.id);
+    if (projectLimit.overLimit) {
       return res.status(400).json({
-        error: `Plan limit reached. Your plan allows ${maxProjects} projects.`
+        error: `Plan limit reached. Your plan allows ${projectLimit.maxProjects} projects.`
       });
     }
 
@@ -188,14 +209,10 @@ router.post('/api/stores', requireAuth, async (req, res) => {
   if (!name || !id) return res.status(400).json({ error: 'Store name and ID are required' });
 
   try {
-    const { projects: maxProjects } = getPlanLimits(req.user.plan);
-    const { rows: projectCountRows } = await pool.query(
-      'SELECT COUNT(*)::int AS count FROM stores WHERE user_id=$1',
-      [req.user.id]
-    );
-    if (projectCountRows[0].count >= maxProjects) {
+    const projectLimit = await enforceProjectLimitForUser(req.user.id);
+    if (projectLimit.overLimit) {
       return res.status(400).json({
-        error: `Plan limit reached. Your plan allows ${maxProjects} projects.`
+        error: `Plan limit reached. Your plan allows ${projectLimit.maxProjects} projects.`
       });
     }
 
@@ -564,17 +581,44 @@ router.put('/api/alerts/email', requireAuth, async (req, res) => {
   }
 
   try {
-    const { rows } = await pool.query(
-      `INSERT INTO alerts (user_id, type, enabled, rules, cooldown_minutes)
-       VALUES ($1, 'email', $2, $3::jsonb, $4)
-       ON CONFLICT (user_id, type)
-       DO UPDATE SET
-         enabled = EXCLUDED.enabled,
-         rules = EXCLUDED.rules,
-         cooldown_minutes = EXCLUDED.cooldown_minutes
-       RETURNING enabled, cooldown_minutes, rules`,
-      [req.user.id, enabled, JSON.stringify({ to: emails }), cooldownMinutes]
-    );
+    let rows;
+    try {
+      const result = await pool.query(
+        `INSERT INTO alerts (user_id, type, enabled, rules, cooldown_minutes)
+         VALUES ($1, 'email', $2, $3::jsonb, $4)
+         ON CONFLICT (user_id, type)
+         DO UPDATE SET
+           enabled = EXCLUDED.enabled,
+           rules = EXCLUDED.rules,
+           cooldown_minutes = EXCLUDED.cooldown_minutes
+         RETURNING enabled, cooldown_minutes, rules`,
+        [req.user.id, enabled, JSON.stringify({ to: emails }), cooldownMinutes]
+      );
+      rows = result.rows;
+    } catch (upsertErr) {
+      // Existing databases may not yet have UNIQUE(user_id,type) index.
+      if (!upsertErr || upsertErr.code !== '42P10') throw upsertErr;
+
+      const updated = await pool.query(
+        `UPDATE alerts
+         SET enabled=$1, rules=$2::jsonb, cooldown_minutes=$3
+         WHERE user_id=$4 AND type='email'
+         RETURNING enabled, cooldown_minutes, rules`,
+        [enabled, JSON.stringify({ to: emails }), cooldownMinutes, req.user.id]
+      );
+
+      if (updated.rows.length) {
+        rows = updated.rows;
+      } else {
+        const inserted = await pool.query(
+          `INSERT INTO alerts (user_id, type, enabled, rules, cooldown_minutes)
+           VALUES ($1, 'email', $2, $3::jsonb, $4)
+           RETURNING enabled, cooldown_minutes, rules`,
+          [req.user.id, enabled, JSON.stringify({ to: emails }), cooldownMinutes]
+        );
+        rows = inserted.rows;
+      }
+    }
 
     res.json({
       alert: {
