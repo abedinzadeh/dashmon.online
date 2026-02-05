@@ -1,80 +1,17 @@
 const express = require('express');
 const { pool } = require('./db');
 const { requireAuth } = require('./auth');
-<<<<<<< HEAD
-const { getPlanLimits, enforceProjectLimitForUser } = require('./plan-limits');
-=======
-const { getPlanLimits: resolvePlanLimits, enforceProjectLimitForUser, getUserPlanFromDb } = require('./plan-limits');
->>>>>>> 6b39afa (Avoid plan helper name collision after manual merges)
+const {
+  getPlanLimits: resolvePlanLimits,
+  enforceProjectLimitForUser,
+  getUserPlanFromDb
+} = require('./plan-limits');
 const { createMemoryRateLimiter } = require('./rate-limit');
 
 const router = express.Router();
 router.use(express.json());
 
-
-<<<<<<< HEAD
-const PLAN_LIMITS = {
-  free: { projects: 3, devicesPerProject: 15 },
-  premium: { projects: 10, devicesPerProject: 15 }
-};
-
-const writeRateState = new Map();
-function enforceWriteRateLimit(req, res, next) {
-  if (!['POST', 'PUT', 'DELETE'].includes(req.method)) return next();
-
-  const userKey = req.user?.id || req.ip || 'anon';
-  const key = `${userKey}:${req.path}`;
-  const now = Date.now();
-  const windowMs = 60 * 1000;
-  const max = req.user?.plan === 'premium' ? 120 : 60;
-
-  let entry = writeRateState.get(key);
-  if (!entry || now - entry.start >= windowMs) {
-    entry = { start: now, count: 0 };
-    writeRateState.set(key, entry);
-  }
-
-  entry.count += 1;
-  if (entry.count > max) {
-    const retryAfterSeconds = Math.ceil((windowMs - (now - entry.start)) / 1000);
-    res.set('Retry-After', String(Math.max(retryAfterSeconds, 1)));
-    return res.status(429).json({ error: 'Too many write requests. Please slow down.' });
-  }
-
-  return next();
-}
-
-router.use(enforceWriteRateLimit);
-
-function getPlanLimits(plan) {
-  return plan === 'premium' ? PLAN_LIMITS.premium : PLAN_LIMITS.free;
-}
-
-function normalizePlan(plan) {
-  const v = String(plan || '').trim().toLowerCase();
-  return v === 'premium' ? 'premium' : 'free';
-}
-
-async function getUserPlanFromDb(userId) {
-  const { rows } = await pool.query('SELECT plan FROM users WHERE id=$1', [userId]);
-  return normalizePlan(rows[0]?.plan);
-}
-
-async function enforceProjectLimitForUser(userId) {
-  const dbPlan = await getUserPlanFromDb(userId);
-  const { projects: maxProjects } = getPlanLimits(dbPlan);
-  const { rows: projectCountRows } = await pool.query(
-    'SELECT COUNT(*)::int AS count FROM stores WHERE user_id=$1',
-    [userId]
-  );
-
-  return {
-    maxProjects,
-    count: Number(projectCountRows[0]?.count || 0),
-    overLimit: Number(projectCountRows[0]?.count || 0) >= maxProjects
-  };
-}
-=======
+// --- Write rate limiting (POST/PUT/DELETE) ---
 const writeRateLimiter = createMemoryRateLimiter({
   windowMs: 60 * 1000,
   maxRequests: (req) => (req.user?.plan === 'premium' ? 120 : 60),
@@ -86,7 +23,6 @@ router.use((req, res, next) => {
   if (!['POST', 'PUT', 'DELETE'].includes(req.method)) return next();
   return writeRateLimiter(req, res, next);
 });
->>>>>>> 6b39afa (Avoid plan helper name collision after manual merges)
 
 // --- Auth / session helpers ---
 router.get('/api/me', requireAuth, (req, res) => {
@@ -116,11 +52,10 @@ router.post('/logout', (req, res) => {
 });
 
 // Optional GET logout (useful for manual testing)
-router.get('/logout', (req, res) => res.redirect('/login.html'));
+router.get('/logout', (_req, res) => res.redirect('/login.html'));
 
 // --- Projects (formerly "stores") ---
 // NOTE: We keep DB table name "stores" but UI uses "projects".
-
 async function getProjectsWithDevices(userId) {
   const { rows: projects } = await pool.query(
     `SELECT id, name, location, notes, created_at, updated_at
@@ -145,18 +80,20 @@ async function getProjectsWithDevices(userId) {
     devicesByProject.get(key).push(d);
   }
 
-  return projects.map(p => {
+  return projects.map((p) => {
     const list = devicesByProject.get(p.id) || [];
     const totalDevices = list.length;
-    const upDevices = list.filter(x => x.status === 'up').length;
-    const downDevices = list.filter(x => x.status === 'down').length;
-    const warningDevices = list.filter(x => x.status === 'warning').length;
-    const maintenanceDevices = list.filter(x => x.status === 'maintenance').length;
+    const upDevices = list.filter((x) => x.status === 'up').length;
+    const downDevices = list.filter((x) => x.status === 'down').length;
+    const warningDevices = list.filter((x) => x.status === 'warning').length;
+    const maintenanceDevices = list.filter((x) => x.status === 'maintenance').length;
 
     let status = 'up';
     if (downDevices > 0) status = 'down';
     else if (warningDevices > 0) status = 'warning';
-    else if (maintenanceDevices > 0) status = (maintenanceDevices === totalDevices ? 'maintenance' : 'partial_maintenance');
+    else if (maintenanceDevices > 0) {
+      status = maintenanceDevices === totalDevices ? 'maintenance' : 'partial_maintenance';
+    }
 
     return {
       ...p,
@@ -197,21 +134,14 @@ router.post('/api/projects', requireAuth, async (req, res) => {
   if (!name || !id) return res.status(400).json({ error: 'Project name and Project ID are required' });
 
   try {
-<<<<<<< HEAD
-    const projectLimit = await enforceProjectLimitForUser(req.user.id);
-=======
     const projectLimit = await enforceProjectLimitForUser(pool, req.user.id);
->>>>>>> 6b39afa (Avoid plan helper name collision after manual merges)
     if (projectLimit.overLimit) {
       return res.status(400).json({
         error: `Plan limit reached. Your plan allows ${projectLimit.maxProjects} projects.`
       });
     }
 
-    const existing = await pool.query(
-      'SELECT 1 FROM stores WHERE user_id=$1 AND id=$2',
-      [req.user.id, id]
-    );
+    const existing = await pool.query('SELECT 1 FROM stores WHERE user_id=$1 AND id=$2', [req.user.id, id]);
     if (existing.rows.length) return res.status(400).json({ error: 'Project ID already exists' });
 
     const { rows } = await pool.query(
@@ -220,6 +150,7 @@ router.post('/api/projects', requireAuth, async (req, res) => {
        RETURNING id, name, location, notes, created_at, updated_at`,
       [req.user.id, id, name, location || null, notes || null]
     );
+
     res.json({ project: rows[0] });
   } catch (e) {
     console.error('Error adding project:', e);
@@ -233,21 +164,14 @@ router.post('/api/stores', requireAuth, async (req, res) => {
   if (!name || !id) return res.status(400).json({ error: 'Store name and ID are required' });
 
   try {
-<<<<<<< HEAD
-    const projectLimit = await enforceProjectLimitForUser(req.user.id);
-=======
     const projectLimit = await enforceProjectLimitForUser(pool, req.user.id);
->>>>>>> 6b39afa (Avoid plan helper name collision after manual merges)
     if (projectLimit.overLimit) {
       return res.status(400).json({
         error: `Plan limit reached. Your plan allows ${projectLimit.maxProjects} projects.`
       });
     }
 
-    const existing = await pool.query(
-      'SELECT 1 FROM stores WHERE user_id=$1 AND id=$2',
-      [req.user.id, id]
-    );
+    const existing = await pool.query('SELECT 1 FROM stores WHERE user_id=$1 AND id=$2', [req.user.id, id]);
     if (existing.rows.length) return res.status(400).json({ error: 'Store ID already exists' });
 
     const { rows } = await pool.query(
@@ -256,6 +180,7 @@ router.post('/api/stores', requireAuth, async (req, res) => {
        RETURNING id, name, location, notes, created_at, updated_at`,
       [req.user.id, id, name, location || null, notes || null]
     );
+
     res.json({ store: rows[0] });
   } catch (e) {
     console.error('Error adding store:', e);
@@ -302,10 +227,10 @@ router.get('/api/stores/:storeId', requireAuth, async (req, res) => {
 router.get('/api/projects/:projectId/devices', requireAuth, async (req, res) => {
   const projectId = req.params.projectId;
   try {
-    const storeCheck = await pool.query(
-      'SELECT 1 FROM stores WHERE id=$1 AND user_id=$2',
-      [projectId, req.user.id]
-    );
+    const storeCheck = await pool.query('SELECT 1 FROM stores WHERE id=$1 AND user_id=$2', [
+      projectId,
+      req.user.id
+    ]);
     if (!storeCheck.rows.length) return res.status(404).json({ error: 'Project not found' });
 
     const { rows } = await pool.query(
@@ -323,10 +248,10 @@ router.get('/api/projects/:projectId/devices', requireAuth, async (req, res) => 
 router.get('/api/stores/:storeId/devices', requireAuth, async (req, res) => {
   const storeId = req.params.storeId;
   try {
-    const storeCheck = await pool.query(
-      'SELECT 1 FROM stores WHERE id=$1 AND user_id=$2',
-      [storeId, req.user.id]
-    );
+    const storeCheck = await pool.query('SELECT 1 FROM stores WHERE id=$1 AND user_id=$2', [
+      storeId,
+      req.user.id
+    ]);
     if (!storeCheck.rows.length) return res.status(404).json({ error: 'Store not found' });
 
     const { rows } = await pool.query(
@@ -340,38 +265,48 @@ router.get('/api/stores/:storeId/devices', requireAuth, async (req, res) => {
   }
 });
 
+async function enforceDeviceLimitOr400({ userId, projectId }) {
+  const { rows: countRows } = await pool.query(
+    'SELECT COUNT(*)::int AS count FROM devices WHERE store_id=$1 AND user_id=$2',
+    [projectId, userId]
+  );
+
+  const dbPlan = await getUserPlanFromDb(pool, userId);
+  const { devicesPerProject: maxDevices } = resolvePlanLimits(dbPlan);
+
+  if (Number(countRows[0]?.count || 0) >= maxDevices) {
+    return {
+      ok: false,
+      maxDevices,
+      plan: dbPlan
+    };
+  }
+
+  return { ok: true, maxDevices, plan: dbPlan };
+}
+
 router.post('/api/projects/:projectId/devices', requireAuth, async (req, res) => {
   const projectId = req.params.projectId;
   const { name, type, ip, port, url, notes } = req.body || {};
   if (!name || !type || !ip) return res.status(400).json({ error: 'Device name, type, and IP are required' });
 
   try {
-    const storeCheck = await pool.query(
-      'SELECT 1 FROM stores WHERE id=$1 AND user_id=$2',
-      [projectId, req.user.id]
-    );
+    const storeCheck = await pool.query('SELECT 1 FROM stores WHERE id=$1 AND user_id=$2', [
+      projectId,
+      req.user.id
+    ]);
     if (!storeCheck.rows.length) return res.status(404).json({ error: 'Project not found' });
 
-    // Enforce plan limits per project
-    const { rows: countRows } = await pool.query(
-      'SELECT COUNT(*)::int AS count FROM devices WHERE store_id=$1 AND user_id=$2',
-      [projectId, req.user.id]
-    );
-<<<<<<< HEAD
-    const { devicesPerProject: maxDevices } = getPlanLimits(req.user.plan);
-=======
-    const dbPlan = await getUserPlanFromDb(pool, req.user.id);
-    const { devicesPerProject: maxDevices } = resolvePlanLimits(dbPlan);
->>>>>>> 6b39afa (Avoid plan helper name collision after manual merges)
-    if (countRows[0].count >= maxDevices) {
+    const limitCheck = await enforceDeviceLimitOr400({ userId: req.user.id, projectId });
+    if (!limitCheck.ok) {
       return res.status(400).json({
-        error: `Plan limit reached. Your plan allows ${maxDevices} devices per project.`
+        error: `Plan limit reached. Your plan allows ${limitCheck.maxDevices} devices per project.`
       });
     }
 
     // Enforce check interval by plan:
     // free = 2 hours, premium = 15 minutes
-    const pingInterval = req.user.plan === 'premium' ? 900 : 7200;
+    const pingInterval = limitCheck.plan === 'premium' ? 900 : 7200;
 
     const { rows } = await pool.query(
       `INSERT INTO devices (store_id, user_id, name, type, ip, port, url, ping_interval, ping_packets, notes, status)
@@ -394,29 +329,20 @@ router.post('/api/stores/:storeId/devices', requireAuth, async (req, res) => {
   if (!name || !type || !ip) return res.status(400).json({ error: 'Device name, type, and IP are required' });
 
   try {
-    const storeCheck = await pool.query(
-      'SELECT 1 FROM stores WHERE id=$1 AND user_id=$2',
-      [storeId, req.user.id]
-    );
+    const storeCheck = await pool.query('SELECT 1 FROM stores WHERE id=$1 AND user_id=$2', [
+      storeId,
+      req.user.id
+    ]);
     if (!storeCheck.rows.length) return res.status(404).json({ error: 'Store not found' });
 
-    const { rows: countRows } = await pool.query(
-      'SELECT COUNT(*)::int AS count FROM devices WHERE store_id=$1 AND user_id=$2',
-      [storeId, req.user.id]
-    );
-<<<<<<< HEAD
-    const { devicesPerProject: maxDevices } = getPlanLimits(req.user.plan);
-=======
-    const dbPlan = await getUserPlanFromDb(pool, req.user.id);
-    const { devicesPerProject: maxDevices } = resolvePlanLimits(dbPlan);
->>>>>>> 6b39afa (Avoid plan helper name collision after manual merges)
-    if (countRows[0].count >= maxDevices) {
+    const limitCheck = await enforceDeviceLimitOr400({ userId: req.user.id, projectId: storeId });
+    if (!limitCheck.ok) {
       return res.status(400).json({
-        error: `Plan limit reached. Your plan allows ${maxDevices} devices per project.`
+        error: `Plan limit reached. Your plan allows ${limitCheck.maxDevices} devices per project.`
       });
     }
 
-    const pingInterval = req.user.plan === 'premium' ? 900 : 7200;
+    const pingInterval = limitCheck.plan === 'premium' ? 900 : 7200;
 
     const { rows } = await pool.query(
       `INSERT INTO devices (store_id, user_id, name, type, ip, port, url, ping_interval, ping_packets, notes, status)
@@ -435,16 +361,17 @@ router.post('/api/stores/:storeId/devices', requireAuth, async (req, res) => {
 router.get('/api/projects/:projectId/devices/:deviceId', requireAuth, async (req, res) => {
   const { projectId, deviceId } = req.params;
   try {
-    const storeCheck = await pool.query(
-      'SELECT 1 FROM stores WHERE id=$1 AND user_id=$2',
-      [projectId, req.user.id]
-    );
+    const storeCheck = await pool.query('SELECT 1 FROM stores WHERE id=$1 AND user_id=$2', [
+      projectId,
+      req.user.id
+    ]);
     if (!storeCheck.rows.length) return res.status(404).json({ error: 'Project not found' });
 
-    const { rows } = await pool.query(
-      'SELECT * FROM devices WHERE id=$1 AND store_id=$2 AND user_id=$3',
-      [deviceId, projectId, req.user.id]
-    );
+    const { rows } = await pool.query('SELECT * FROM devices WHERE id=$1 AND store_id=$2 AND user_id=$3', [
+      deviceId,
+      projectId,
+      req.user.id
+    ]);
     if (!rows.length) return res.status(404).json({ error: 'Device not found' });
     res.json({ device: rows[0] });
   } catch (e) {
@@ -456,16 +383,20 @@ router.get('/api/projects/:projectId/devices/:deviceId', requireAuth, async (req
 // Queue a device for immediate check (worker looks at last_check)
 router.post('/api/devices/:deviceId/test-now', requireAuth, async (req, res) => {
   const { deviceId } = req.params;
+
+  // Fast path: free plan blocked WITHOUT hitting DB (tests expect this)
   if (req.user.plan !== 'premium') {
     return res.status(403).json({ error: 'Manual test is available on Premium plan only' });
   }
+
   try {
     const dbPlan = await getUserPlanFromDb(pool, req.user.id);
     if (dbPlan !== 'premium') {
       return res.status(403).json({ error: 'Manual test is available on Premium plan only' });
     }
+
     const { rows } = await pool.query(
-      'UPDATE devices SET last_check = now() - interval \'365 days\' WHERE id=$1 AND user_id=$2 RETURNING id',
+      "UPDATE devices SET last_check = now() - interval '365 days' WHERE id=$1 AND user_id=$2 RETURNING id",
       [deviceId, req.user.id]
     );
     if (!rows.length) return res.status(404).json({ error: 'Device not found' });
@@ -476,7 +407,6 @@ router.post('/api/devices/:deviceId/test-now', requireAuth, async (req, res) => 
   }
 });
 
-
 // --- Device history (for graphs) ---
 router.get('/api/devices/:deviceId/history', requireAuth, async (req, res) => {
   const { deviceId } = req.params;
@@ -485,12 +415,13 @@ router.get('/api/devices/:deviceId/history', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'limit must be a positive number' });
   }
   const limit = Math.min(Math.floor(requestedLimit), 500);
+
   try {
     // Ownership enforced by join on devices.user_id
-    const { rows: deviceRows } = await pool.query(
-      'SELECT id FROM devices WHERE id=$1 AND user_id=$2',
-      [deviceId, req.user.id]
-    );
+    const { rows: deviceRows } = await pool.query('SELECT id FROM devices WHERE id=$1 AND user_id=$2', [
+      deviceId,
+      req.user.id
+    ]);
     if (!deviceRows.length) return res.status(404).json({ error: 'Device not found' });
 
     let historyRows;
@@ -550,10 +481,10 @@ router.put('/api/devices/:deviceId', requireAuth, async (req, res) => {
 router.delete('/api/devices/:deviceId', requireAuth, async (req, res) => {
   const { deviceId } = req.params;
   try {
-    const { rows } = await pool.query(
-      'DELETE FROM devices WHERE id=$1 AND user_id=$2 RETURNING id',
-      [deviceId, req.user.id]
-    );
+    const { rows } = await pool.query('DELETE FROM devices WHERE id=$1 AND user_id=$2 RETURNING id', [
+      deviceId,
+      req.user.id
+    ]);
     if (!rows.length) return res.status(404).json({ error: 'Device not found' });
     res.status(204).end();
   } catch (e) {
@@ -561,8 +492,6 @@ router.delete('/api/devices/:deviceId', requireAuth, async (req, res) => {
     res.status(500).json({ error: 'Failed to delete device' });
   }
 });
-
-
 
 // --- Email alert configuration ---
 router.get('/api/alerts/email', requireAuth, async (req, res) => {
@@ -603,11 +532,7 @@ router.put('/api/alerts/email', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'cooldownMinutes must be between 1 and 10080' });
   }
 
-  const to = Array.isArray(body.to)
-    ? body.to
-    : typeof body.to === 'string'
-      ? body.to.split(',')
-      : [];
+  const to = Array.isArray(body.to) ? body.to : typeof body.to === 'string' ? body.to.split(',') : [];
 
   const emails = [];
   const seen = new Set();
@@ -710,7 +635,7 @@ router.get('/api/metrics/down-events', requireAuth, async (req, res) => {
       rows = result.rows;
     }
 
-    res.json({ points: rows.map(r => ({ ts: r.bucket, value: r.down_events })) });
+    res.json({ points: rows.map((r) => ({ ts: r.bucket, value: r.down_events })) });
   } catch (e) {
     console.error('Error metrics down-events:', e);
     res.status(500).json({ error: 'Failed to fetch metrics' });
@@ -723,3 +648,4 @@ router.use('/api', (_req, res) => {
 });
 
 module.exports = { router };
+
