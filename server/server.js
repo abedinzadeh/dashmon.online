@@ -33,12 +33,28 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 
-const authRateLimit = createMemoryRateLimiter({
-  windowMs: 60 * 1000,
-  maxRequests: 20,
-  keyFn: (req) => `${req.ip || 'unknown'}:${req.path}`,
-  message: 'Too many auth requests. Please retry later.'
-});
+const authRateState = new Map();
+function authRateLimit(req, res, next) {
+  const key = `${req.ip || 'unknown'}:${req.path}`;
+  const now = Date.now();
+  const windowMs = 60 * 1000;
+  const max = 20;
+
+  let entry = authRateState.get(key);
+  if (!entry || now - entry.start >= windowMs) {
+    entry = { start: now, count: 0 };
+    authRateState.set(key, entry);
+  }
+
+  entry.count += 1;
+  if (entry.count > max) {
+    const retryAfterSeconds = Math.ceil((windowMs - (now - entry.start)) / 1000);
+    res.set('Retry-After', String(Math.max(retryAfterSeconds, 1)));
+    return res.status(429).json({ error: 'Too many auth requests. Please retry later.' });
+  }
+
+  return next();
+}
 
 // Auth routes
 app.get('/auth/google', authRateLimit,
