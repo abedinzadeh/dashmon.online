@@ -1,18 +1,12 @@
 const express = require('express');
 const { pool } = require('./db');
 const { requireAuth } = require('./auth');
-const { getPlanLimits, enforceProjectLimitForUser } = require('./plan-limits');
 const { getPlanLimits: resolvePlanLimits, enforceProjectLimitForUser, getUserPlanFromDb } = require('./plan-limits');
 const { createMemoryRateLimiter } = require('./rate-limit');
 
 const router = express.Router();
 router.use(express.json());
 
-
-const PLAN_LIMITS = {
-  free: { projects: 3, devicesPerProject: 15 },
-  premium: { projects: 10, devicesPerProject: 15 }
-};
 
 const writeRateState = new Map();
 function enforceWriteRateLimit(req, res, next) {
@@ -42,34 +36,6 @@ function enforceWriteRateLimit(req, res, next) {
 
 router.use(enforceWriteRateLimit);
 
-function getPlanLimits(plan) {
-  return plan === 'premium' ? PLAN_LIMITS.premium : PLAN_LIMITS.free;
-}
-
-function normalizePlan(plan) {
-  const v = String(plan || '').trim().toLowerCase();
-  return v === 'premium' ? 'premium' : 'free';
-}
-
-async function getUserPlanFromDb(userId) {
-  const { rows } = await pool.query('SELECT plan FROM users WHERE id=$1', [userId]);
-  return normalizePlan(rows[0]?.plan);
-}
-
-async function enforceProjectLimitForUser(userId) {
-  const dbPlan = await getUserPlanFromDb(userId);
-  const { projects: maxProjects } = getPlanLimits(dbPlan);
-  const { rows: projectCountRows } = await pool.query(
-    'SELECT COUNT(*)::int AS count FROM stores WHERE user_id=$1',
-    [userId]
-  );
-
-  return {
-    maxProjects,
-    count: Number(projectCountRows[0]?.count || 0),
-    overLimit: Number(projectCountRows[0]?.count || 0) >= maxProjects
-  };
-}
 const writeRateLimiter = createMemoryRateLimiter({
   windowMs: 60 * 1000,
   maxRequests: (req) => (req.user?.plan === 'premium' ? 120 : 60),
@@ -191,7 +157,6 @@ router.post('/api/projects', requireAuth, async (req, res) => {
   if (!name || !id) return res.status(400).json({ error: 'Project name and Project ID are required' });
 
   try {
-    const projectLimit = await enforceProjectLimitForUser(req.user.id);
     const projectLimit = await enforceProjectLimitForUser(pool, req.user.id);
     if (projectLimit.overLimit) {
       return res.status(400).json({
