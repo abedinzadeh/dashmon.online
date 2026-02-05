@@ -358,7 +358,11 @@ router.post('/api/devices/:deviceId/test-now', requireAuth, async (req, res) => 
 // --- Device history (for graphs) ---
 router.get('/api/devices/:deviceId/history', requireAuth, async (req, res) => {
   const { deviceId } = req.params;
-  const limit = Math.min(Number(req.query.limit || 60) || 60, 500);
+  const requestedLimit = Number(req.query.limit || 60);
+  if (!Number.isFinite(requestedLimit) || requestedLimit < 1) {
+    return res.status(400).json({ error: 'limit must be a positive number' });
+  }
+  const limit = Math.min(Math.floor(requestedLimit), 500);
   try {
     // Ownership enforced by join on devices.user_id
     const { rows: deviceRows } = await pool.query(
@@ -367,15 +371,32 @@ router.get('/api/devices/:deviceId/history', requireAuth, async (req, res) => {
     );
     if (!deviceRows.length) return res.status(404).json({ error: 'Device not found' });
 
-    const { rows } = await pool.query(
-      `SELECT ts, status, latency_ms, status_code, detail
-       FROM device_history
-       WHERE device_id=$1
-       ORDER BY ts DESC
-       LIMIT $2`,
-      [deviceId, limit]
-    );
-    res.json({ history: rows.reverse() }); // oldest->newest for charts
+    let historyRows;
+    try {
+      const { rows } = await pool.query(
+        `SELECT ts, status, latency_ms, status_code, detail
+         FROM device_history
+         WHERE device_id=$1
+         ORDER BY ts DESC
+         LIMIT $2`,
+        [deviceId, limit]
+      );
+      historyRows = rows;
+    } catch (historyErr) {
+      if (historyErr && historyErr.code !== '42703') throw historyErr;
+
+      const { rows } = await pool.query(
+        `SELECT timestamp AS ts, status, latency AS latency_ms, NULL::int AS status_code, detail
+         FROM device_history
+         WHERE device_id=$1
+         ORDER BY timestamp DESC
+         LIMIT $2`,
+        [deviceId, limit]
+      );
+      historyRows = rows;
+    }
+
+    res.json({ history: historyRows.reverse() }); // oldest->newest for charts
   } catch (e) {
     console.error('Error fetching device history:', e);
     res.status(500).json({ error: 'Failed to fetch device history' });
@@ -424,22 +445,47 @@ router.delete('/api/devices/:deviceId', requireAuth, async (req, res) => {
 router.get('/api/metrics/down-events', requireAuth, async (req, res) => {
   const hours = Math.min(Number(req.query.hours || 24) || 24, 168); // up to 7 days
   try {
-    const { rows } = await pool.query(
-      `SELECT date_trunc('hour', h.ts) AS bucket, COUNT(*)::int AS down_events
-       FROM device_history h
-       JOIN devices d ON d.id = h.device_id
-       WHERE d.user_id=$1
-         AND h.ts >= now() - ($2 || ' hours')::interval
-         AND h.status='down'
-       GROUP BY bucket
-       ORDER BY bucket ASC`,
-      [req.user.id, String(hours)]
-    );
+    let rows;
+    try {
+      const result = await pool.query(
+        `SELECT date_trunc('hour', h.ts) AS bucket, COUNT(*)::int AS down_events
+         FROM device_history h
+         JOIN devices d ON d.id = h.device_id
+         WHERE d.user_id=$1
+           AND h.ts >= now() - ($2 || ' hours')::interval
+           AND h.status='down'
+         GROUP BY bucket
+         ORDER BY bucket ASC`,
+        [req.user.id, String(hours)]
+      );
+      rows = result.rows;
+    } catch (metricsErr) {
+      if (metricsErr && metricsErr.code !== '42703') throw metricsErr;
+
+      const result = await pool.query(
+        `SELECT date_trunc('hour', h.timestamp) AS bucket, COUNT(*)::int AS down_events
+         FROM device_history h
+         JOIN devices d ON d.id = h.device_id
+         WHERE d.user_id=$1
+           AND h.timestamp >= now() - ($2 || ' hours')::interval
+           AND h.status='down'
+         GROUP BY bucket
+         ORDER BY bucket ASC`,
+        [req.user.id, String(hours)]
+      );
+      rows = result.rows;
+    }
+
     res.json({ points: rows.map(r => ({ ts: r.bucket, value: r.down_events })) });
   } catch (e) {
     console.error('Error metrics down-events:', e);
     res.status(500).json({ error: 'Failed to fetch metrics' });
   }
+});
+
+// Ensure unknown API routes return JSON (not HTML)
+router.use('/api', (_req, res) => {
+  res.status(404).json({ error: 'Not found' });
 });
 
 module.exports = { router };
