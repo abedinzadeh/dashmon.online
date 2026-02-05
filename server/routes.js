@@ -1,9 +1,24 @@
 const express = require('express');
 const { pool } = require('./db');
 const { requireAuth } = require('./auth');
+const { getPlanLimits, enforceProjectLimitForUser } = require('./plan-limits');
+const { createMemoryRateLimiter } = require('./rate-limit');
 
 const router = express.Router();
 router.use(express.json());
+
+
+const writeRateLimiter = createMemoryRateLimiter({
+  windowMs: 60 * 1000,
+  maxRequests: (req) => (req.user?.plan === 'premium' ? 120 : 60),
+  keyFn: (req) => `${req.user?.id || req.ip || 'anon'}:${req.path}`,
+  message: 'Too many write requests. Please slow down.'
+});
+
+router.use((req, res, next) => {
+  if (!['POST', 'PUT', 'DELETE'].includes(req.method)) return next();
+  return writeRateLimiter(req, res, next);
+});
 
 // --- Auth / session helpers ---
 router.get('/api/me', requireAuth, (req, res) => {
@@ -114,6 +129,13 @@ router.post('/api/projects', requireAuth, async (req, res) => {
   if (!name || !id) return res.status(400).json({ error: 'Project name and Project ID are required' });
 
   try {
+    const projectLimit = await enforceProjectLimitForUser(pool, req.user.id);
+    if (projectLimit.overLimit) {
+      return res.status(400).json({
+        error: `Plan limit reached. Your plan allows ${projectLimit.maxProjects} projects.`
+      });
+    }
+
     const existing = await pool.query(
       'SELECT 1 FROM stores WHERE user_id=$1 AND id=$2',
       [req.user.id, id]
@@ -139,6 +161,13 @@ router.post('/api/stores', requireAuth, async (req, res) => {
   if (!name || !id) return res.status(400).json({ error: 'Store name and ID are required' });
 
   try {
+    const projectLimit = await enforceProjectLimitForUser(pool, req.user.id);
+    if (projectLimit.overLimit) {
+      return res.status(400).json({
+        error: `Plan limit reached. Your plan allows ${projectLimit.maxProjects} projects.`
+      });
+    }
+
     const existing = await pool.query(
       'SELECT 1 FROM stores WHERE user_id=$1 AND id=$2',
       [req.user.id, id]
@@ -252,10 +281,10 @@ router.post('/api/projects/:projectId/devices', requireAuth, async (req, res) =>
       'SELECT COUNT(*)::int AS count FROM devices WHERE store_id=$1 AND user_id=$2',
       [projectId, req.user.id]
     );
-    const maxDevices = req.user.plan === 'premium' ? 100 : 20;
+    const { devicesPerProject: maxDevices } = getPlanLimits(req.user.plan);
     if (countRows[0].count >= maxDevices) {
       return res.status(400).json({
-        error: `Plan limit reached. Free plan allows ${maxDevices} devices per project. Upgrade to Premium.`
+        error: `Plan limit reached. Your plan allows ${maxDevices} devices per project.`
       });
     }
 
@@ -294,10 +323,10 @@ router.post('/api/stores/:storeId/devices', requireAuth, async (req, res) => {
       'SELECT COUNT(*)::int AS count FROM devices WHERE store_id=$1 AND user_id=$2',
       [storeId, req.user.id]
     );
-    const maxDevices = req.user.plan === 'premium' ? 100 : 20;
+    const { devicesPerProject: maxDevices } = getPlanLimits(req.user.plan);
     if (countRows[0].count >= maxDevices) {
       return res.status(400).json({
-        error: `Plan limit reached. Free plan allows ${maxDevices} devices per store. Upgrade to Premium.`
+        error: `Plan limit reached. Your plan allows ${maxDevices} devices per project.`
       });
     }
 
@@ -341,6 +370,9 @@ router.get('/api/projects/:projectId/devices/:deviceId', requireAuth, async (req
 // Queue a device for immediate check (worker looks at last_check)
 router.post('/api/devices/:deviceId/test-now', requireAuth, async (req, res) => {
   const { deviceId } = req.params;
+  if (req.user.plan !== 'premium') {
+    return res.status(403).json({ error: 'Manual test is available on Premium plan only' });
+  }
   try {
     const { rows } = await pool.query(
       'UPDATE devices SET last_check = now() - interval \'365 days\' WHERE id=$1 AND user_id=$2 RETURNING id',
@@ -501,17 +533,44 @@ router.put('/api/alerts/email', requireAuth, async (req, res) => {
   }
 
   try {
-    const { rows } = await pool.query(
-      `INSERT INTO alerts (user_id, type, enabled, rules, cooldown_minutes)
-       VALUES ($1, 'email', $2, $3::jsonb, $4)
-       ON CONFLICT (user_id, type)
-       DO UPDATE SET
-         enabled = EXCLUDED.enabled,
-         rules = EXCLUDED.rules,
-         cooldown_minutes = EXCLUDED.cooldown_minutes
-       RETURNING enabled, cooldown_minutes, rules`,
-      [req.user.id, enabled, JSON.stringify({ to: emails }), cooldownMinutes]
-    );
+    let rows;
+    try {
+      const result = await pool.query(
+        `INSERT INTO alerts (user_id, type, enabled, rules, cooldown_minutes)
+         VALUES ($1, 'email', $2, $3::jsonb, $4)
+         ON CONFLICT (user_id, type)
+         DO UPDATE SET
+           enabled = EXCLUDED.enabled,
+           rules = EXCLUDED.rules,
+           cooldown_minutes = EXCLUDED.cooldown_minutes
+         RETURNING enabled, cooldown_minutes, rules`,
+        [req.user.id, enabled, JSON.stringify({ to: emails }), cooldownMinutes]
+      );
+      rows = result.rows;
+    } catch (upsertErr) {
+      // Existing databases may not yet have UNIQUE(user_id,type) index.
+      if (!upsertErr || upsertErr.code !== '42P10') throw upsertErr;
+
+      const updated = await pool.query(
+        `UPDATE alerts
+         SET enabled=$1, rules=$2::jsonb, cooldown_minutes=$3
+         WHERE user_id=$4 AND type='email'
+         RETURNING enabled, cooldown_minutes, rules`,
+        [enabled, JSON.stringify({ to: emails }), cooldownMinutes, req.user.id]
+      );
+
+      if (updated.rows.length) {
+        rows = updated.rows;
+      } else {
+        const inserted = await pool.query(
+          `INSERT INTO alerts (user_id, type, enabled, rules, cooldown_minutes)
+           VALUES ($1, 'email', $2, $3::jsonb, $4)
+           RETURNING enabled, cooldown_minutes, rules`,
+          [req.user.id, enabled, JSON.stringify({ to: emails }), cooldownMinutes]
+        );
+        rows = inserted.rows;
+      }
+    }
 
     res.json({
       alert: {
