@@ -12,7 +12,8 @@
     expanded: new Set(),
     tvMode: false,
     soundOn: (localStorage.getItem('downAlertSound') || 'on') === 'on',
-    lastDownCount: 0
+    lastDownCount: 0,
+    emailAlert: { enabled: false, cooldownMinutes: 30, to: [] }
   };
 
 
@@ -67,15 +68,46 @@
     return new Chart(el.getContext('2d'), cfg);
   }
 
-  async function updateMainGraphs() {
-    // Main dashboard: show down-events per hour (last 24h)
-    const res = await apiFetch('/api/metrics/down-events?hours=24');
-    if (!res.ok) return;
-    const data = await res.json();
-    const points = data.points || [];
+  function ensureStatusChart(canvasId, summary, existing) {
+    const el = $(canvasId);
+    if (!el || typeof Chart === 'undefined') return null;
 
-    state.charts.main = ensureLineChart('statusChart', 'Down events', points, state.charts.main);
-    state.charts.tvMain = ensureLineChart('tvStatusChart', 'Down events', points, state.charts.tvMain);
+    const labels = ['Up', 'Down', 'Warning', 'Maintenance'];
+    const values = [summary.up || 0, summary.down || 0, summary.warning || 0, summary.maintenance || 0];
+
+    const cfg = {
+      type: 'doughnut',
+      data: {
+        labels,
+        datasets: [{
+          data: values,
+          backgroundColor: ['#22c55e', '#ef4444', '#f59e0b', '#8b5cf6'],
+          borderColor: ['#14532d', '#7f1d1d', '#78350f', '#4c1d95'],
+          borderWidth: 1
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom', labels: { color: '#d1d5db' } }
+        }
+      }
+    };
+
+    if (existing) {
+      existing.data.datasets[0].data = values;
+      existing.update();
+      return existing;
+    }
+
+    return new Chart(el.getContext('2d'), cfg);
+  }
+
+  async function updateMainGraphs() {
+    const summary = computeSummary(state.projects || []);
+    state.charts.main = ensureStatusChart('statusChart', summary, state.charts.main);
+    state.charts.tvMain = ensureStatusChart('tvStatusChart', summary, state.charts.tvMain);
   }
 
   async function renderSparkline(deviceId) {
@@ -152,6 +184,51 @@
         ? '<i class="fas fa-volume-up mr-2"></i>Sound: ON'
         : '<i class="fas fa-volume-mute mr-2"></i>Sound: OFF';
     }
+  }
+
+  async function loadEmailAlertConfig() {
+    const res = await apiFetch('/api/alerts/email');
+    if (!res.ok) throw new Error('Failed to load alert settings');
+
+    const payload = await res.json();
+    state.emailAlert = payload.alert || { enabled: false, cooldownMinutes: 30, to: [] };
+
+    if ($('emailAlertsEnabled')) $('emailAlertsEnabled').checked = !!state.emailAlert.enabled;
+    if ($('emailAlertsCooldown')) $('emailAlertsCooldown').value = Number(state.emailAlert.cooldownMinutes || 30);
+    if ($('emailAlertsTo')) $('emailAlertsTo').value = (state.emailAlert.to || []).join(', ');
+  }
+
+  async function openEmailAlertsModal() {
+    try {
+      await loadEmailAlertConfig();
+      openModal('emailAlertsModal');
+    } catch (e) {
+      alert(e?.message || 'Failed to load alert settings');
+    }
+  }
+
+  async function saveEmailAlerts(e) {
+    e.preventDefault();
+    const enabled = !!$('emailAlertsEnabled')?.checked;
+    const cooldownMinutes = Number($('emailAlertsCooldown')?.value || 30);
+    const rawRecipients = String($('emailAlertsTo')?.value || '');
+    const to = rawRecipients.split(',').map((x) => x.trim()).filter(Boolean);
+
+    const res = await apiFetch('/api/alerts/email', {
+      method: 'PUT',
+      body: { enabled, cooldownMinutes, to }
+    });
+
+    if (!res.ok) {
+      const msg = (await res.json().catch(() => null))?.error || `Failed (${res.status})`;
+      alert(msg);
+      return;
+    }
+
+    const payload = await res.json();
+    state.emailAlert = payload.alert || { enabled: false, cooldownMinutes: 30, to: [] };
+    closeModal('emailAlertsModal');
+    alert('Email alert settings saved.');
   }
 
   function openModal(id) {
@@ -240,14 +317,18 @@ function statusClass(status) {
     }
     state.lastDownCount = sum.down;
 
-    const lastUpdated = $('tvLastUpdated');
-    if (lastUpdated) lastUpdated.textContent = new Date().toLocaleTimeString();
+    const now = new Date().toLocaleTimeString();
+    const tvLastUpdated = $('tvLastUpdated');
+    if (tvLastUpdated) tvLastUpdated.textContent = now;
+    const dashboardLastUpdated = $('lastUpdated');
+    if (dashboardLastUpdated) dashboardLastUpdated.textContent = now;
   }
 
   function updateSummaryUI() {
     const s = computeSummary(state.projects);
     if ($('totalProjects')) $('totalProjects').textContent = s.totalStores;
     if ($('totalDevicesCount')) $('totalDevicesCount').textContent = s.totalDevices;
+    if ($('totalDevices')) $('totalDevices').textContent = s.totalDevices;
     if ($('upDevicesCount')) $('upDevicesCount').textContent = s.up;
     if ($('downDevicesCount')) $('downDevicesCount').textContent = s.down;
     if ($('warningDevicesCount')) $('warningDevicesCount').textContent = s.warning;
@@ -261,14 +342,16 @@ function statusClass(status) {
   }
 
   function sortProjects(list) {
-    const sort = $('storeSortSelect') ? $('storeSortSelect').value : 'name';
+    const sort = $('storeSortSelect') ? $('storeSortSelect').value : 'default';
     const arr = [...list];
     if (sort === 'downDevices') {
       arr.sort((a, b) => (b.downDevices || 0) - (a.downDevices || 0));
     } else if (sort === 'id') {
       arr.sort((a, b) => String(a.id).localeCompare(String(b.id)));
-    } else {
-      arr.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    } else if (sort === 'location') {
+      arr.sort((a, b) => String(a.location || '').localeCompare(String(b.location || '')));
+    } else if (sort === 'name') {
+      arr.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
     }
     return arr;
   }
@@ -279,10 +362,66 @@ function statusClass(status) {
     return list.filter(p => (p.status || 'unknown') === filter);
   }
 
+  function listDevicesByStatus(status) {
+    const devices = [];
+    for (const project of state.projects || []) {
+      for (const device of (project.devices || [])) {
+        const normalized = (device.status || 'unknown').toLowerCase();
+        if (status === 'all' || normalized === status) {
+          devices.push({ projectId: project.id, projectName: project.name || project.id, ...device });
+        }
+      }
+    }
+    return devices;
+  }
+
+  function openSummaryDevicesModal(status) {
+    const list = listDevicesByStatus(status);
+    const titleMap = { all: 'All Devices', up: 'Devices Up', down: 'Devices Down' };
+
+    if ($('summaryDevicesTitle')) $('summaryDevicesTitle').textContent = titleMap[status] || 'Devices';
+    const container = $('summaryDevicesList');
+    if (!container) return;
+
+    if (!list.length) {
+      container.innerHTML = '<div class="text-gray-400">No devices found for this filter.</div>';
+      openModal('summaryDevicesModal');
+      return;
+    }
+
+    container.innerHTML = list.map((d) => {
+      const dot = statusClass(d.status || 'unknown');
+      return `
+        <button class="w-full text-left p-3 rounded-lg bg-black/20 hover:bg-black/30 border border-white/5"
+                data-project-id="${escapeHtml(d.projectId)}"
+                data-device-id="${escapeHtml(d.id)}">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <div class="font-semibold"><span class="status-dot ${dot}"></span>${escapeHtml(d.name || 'Device')}</div>
+              <div class="text-xs text-gray-400 mt-1">Project: ${escapeHtml(d.projectName)} - ${escapeHtml(d.type || 'other')} - ${escapeHtml(d.ip || '')}</div>
+            </div>
+            <div class="text-xs uppercase text-gray-300">${escapeHtml(d.status || 'unknown')}</div>
+          </div>
+        </button>
+      `;
+    }).join('');
+
+    container.querySelectorAll('button[data-project-id]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const projectId = btn.getAttribute('data-project-id');
+        const deviceId = btn.getAttribute('data-device-id');
+        closeModal('summaryDevicesModal');
+        showDeviceDetails(projectId, deviceId);
+      });
+    });
+
+    openModal('summaryDevicesModal');
+  }
+
   function renderProjects() {
     const container = $('projectsContainer');
-    const tvLeft = $('tvStoresLeft');
-    const tvRight = $('tvStoresRight');
+    const tvLeft = $('tvProjectsLeft') || $('tvStoresLeft');
+    const tvRight = $('tvProjectsRight') || $('tvStoresRight');
     if (!container) return;
 
     const filtered = sortProjects(filterProjects(state.projects));
@@ -594,6 +733,18 @@ function statusClass(status) {
     $('testDeviceNow')?.addEventListener('click', testCurrentDevice);
 
     $('soundToggle')?.addEventListener('click', toggleDownAlertSound);
+    $('emailAlertsBtn')?.addEventListener('click', openEmailAlertsModal);
+    $('closeEmailAlertsModal')?.addEventListener('click', () => closeModal('emailAlertsModal'));
+    $('cancelEmailAlerts')?.addEventListener('click', () => closeModal('emailAlertsModal'));
+    $('emailAlertsForm')?.addEventListener('submit', saveEmailAlerts);
+
+    $('totalDevicesCard')?.addEventListener('click', () => openSummaryDevicesModal('all'));
+    $('upDevicesCard')?.addEventListener('click', () => openSummaryDevicesModal('up'));
+    $('downDevicesCard')?.addEventListener('click', () => openSummaryDevicesModal('down'));
+    $('closeSummaryDevicesModal')?.addEventListener('click', () => closeModal('summaryDevicesModal'));
+    $('summaryDevicesModal')?.addEventListener('click', (e) => {
+      if (e.target && e.target.id === 'summaryDevicesModal') closeModal('summaryDevicesModal');
+    });
 
     $('storeSortSelect')?.addEventListener('change', renderProjects);
     $('storeFilterSelect')?.addEventListener('change', renderProjects);
