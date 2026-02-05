@@ -12,7 +12,8 @@
     expanded: new Set(),
     tvMode: false,
     soundOn: (localStorage.getItem('downAlertSound') || 'on') === 'on',
-    lastDownCount: 0
+    lastDownCount: 0,
+    emailAlert: { enabled: false, cooldownMinutes: 30, to: [] }
   };
 
 
@@ -154,6 +155,51 @@
     }
   }
 
+  async function loadEmailAlertConfig() {
+    const res = await apiFetch('/api/alerts/email');
+    if (!res.ok) throw new Error('Failed to load alert settings');
+
+    const payload = await res.json();
+    state.emailAlert = payload.alert || { enabled: false, cooldownMinutes: 30, to: [] };
+
+    if ($('emailAlertsEnabled')) $('emailAlertsEnabled').checked = !!state.emailAlert.enabled;
+    if ($('emailAlertsCooldown')) $('emailAlertsCooldown').value = Number(state.emailAlert.cooldownMinutes || 30);
+    if ($('emailAlertsTo')) $('emailAlertsTo').value = (state.emailAlert.to || []).join(', ');
+  }
+
+  async function openEmailAlertsModal() {
+    try {
+      await loadEmailAlertConfig();
+      openModal('emailAlertsModal');
+    } catch (e) {
+      alert(e?.message || 'Failed to load alert settings');
+    }
+  }
+
+  async function saveEmailAlerts(e) {
+    e.preventDefault();
+    const enabled = !!$('emailAlertsEnabled')?.checked;
+    const cooldownMinutes = Number($('emailAlertsCooldown')?.value || 30);
+    const rawRecipients = String($('emailAlertsTo')?.value || '');
+    const to = rawRecipients.split(',').map((x) => x.trim()).filter(Boolean);
+
+    const res = await apiFetch('/api/alerts/email', {
+      method: 'PUT',
+      body: { enabled, cooldownMinutes, to }
+    });
+
+    if (!res.ok) {
+      const msg = (await res.json().catch(() => null))?.error || `Failed (${res.status})`;
+      alert(msg);
+      return;
+    }
+
+    const payload = await res.json();
+    state.emailAlert = payload.alert || { enabled: false, cooldownMinutes: 30, to: [] };
+    closeModal('emailAlertsModal');
+    alert('Email alert settings saved.');
+  }
+
   function openModal(id) {
     const m = $(id);
     if (!m) return;
@@ -240,8 +286,11 @@ function statusClass(status) {
     }
     state.lastDownCount = sum.down;
 
-    const lastUpdated = $('tvLastUpdated');
-    if (lastUpdated) lastUpdated.textContent = new Date().toLocaleTimeString();
+    const now = new Date().toLocaleTimeString();
+    const tvLastUpdated = $('tvLastUpdated');
+    if (tvLastUpdated) tvLastUpdated.textContent = now;
+    const dashboardLastUpdated = $('lastUpdated');
+    if (dashboardLastUpdated) dashboardLastUpdated.textContent = now;
   }
 
   function updateSummaryUI() {
@@ -261,14 +310,16 @@ function statusClass(status) {
   }
 
   function sortProjects(list) {
-    const sort = $('storeSortSelect') ? $('storeSortSelect').value : 'name';
+    const sort = $('storeSortSelect') ? $('storeSortSelect').value : 'default';
     const arr = [...list];
     if (sort === 'downDevices') {
       arr.sort((a, b) => (b.downDevices || 0) - (a.downDevices || 0));
     } else if (sort === 'id') {
       arr.sort((a, b) => String(a.id).localeCompare(String(b.id)));
-    } else {
-      arr.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    } else if (sort === 'location') {
+      arr.sort((a, b) => String(a.location || '').localeCompare(String(b.location || '')));
+    } else if (sort === 'name') {
+      arr.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
     }
     return arr;
   }
@@ -281,8 +332,8 @@ function statusClass(status) {
 
   function renderProjects() {
     const container = $('projectsContainer');
-    const tvLeft = $('tvStoresLeft');
-    const tvRight = $('tvStoresRight');
+    const tvLeft = $('tvProjectsLeft') || $('tvStoresLeft');
+    const tvRight = $('tvProjectsRight') || $('tvStoresRight');
     if (!container) return;
 
     const filtered = sortProjects(filterProjects(state.projects));
@@ -594,6 +645,10 @@ function statusClass(status) {
     $('testDeviceNow')?.addEventListener('click', testCurrentDevice);
 
     $('soundToggle')?.addEventListener('click', toggleDownAlertSound);
+    $('emailAlertsBtn')?.addEventListener('click', openEmailAlertsModal);
+    $('closeEmailAlertsModal')?.addEventListener('click', () => closeModal('emailAlertsModal'));
+    $('cancelEmailAlerts')?.addEventListener('click', () => closeModal('emailAlertsModal'));
+    $('emailAlertsForm')?.addEventListener('submit', saveEmailAlerts);
 
     $('storeSortSelect')?.addEventListener('change', renderProjects);
     $('storeFilterSelect')?.addEventListener('change', renderProjects);
