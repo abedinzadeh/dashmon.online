@@ -68,15 +68,46 @@
     return new Chart(el.getContext('2d'), cfg);
   }
 
-  async function updateMainGraphs() {
-    // Main dashboard: show down-events per hour (last 24h)
-    const res = await apiFetch('/api/metrics/down-events?hours=24');
-    if (!res.ok) return;
-    const data = await res.json();
-    const points = data.points || [];
+  function ensureStatusChart(canvasId, summary, existing) {
+    const el = $(canvasId);
+    if (!el || typeof Chart === 'undefined') return null;
 
-    state.charts.main = ensureLineChart('statusChart', 'Down events', points, state.charts.main);
-    state.charts.tvMain = ensureLineChart('tvStatusChart', 'Down events', points, state.charts.tvMain);
+    const labels = ['Up', 'Down', 'Warning', 'Maintenance'];
+    const values = [summary.up || 0, summary.down || 0, summary.warning || 0, summary.maintenance || 0];
+
+    const cfg = {
+      type: 'doughnut',
+      data: {
+        labels,
+        datasets: [{
+          data: values,
+          backgroundColor: ['#22c55e', '#ef4444', '#f59e0b', '#8b5cf6'],
+          borderColor: ['#14532d', '#7f1d1d', '#78350f', '#4c1d95'],
+          borderWidth: 1
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom', labels: { color: '#d1d5db' } }
+        }
+      }
+    };
+
+    if (existing) {
+      existing.data.datasets[0].data = values;
+      existing.update();
+      return existing;
+    }
+
+    return new Chart(el.getContext('2d'), cfg);
+  }
+
+  async function updateMainGraphs() {
+    const summary = computeSummary(state.projects || []);
+    state.charts.main = ensureStatusChart('statusChart', summary, state.charts.main);
+    state.charts.tvMain = ensureStatusChart('tvStatusChart', summary, state.charts.tvMain);
   }
 
   async function renderSparkline(deviceId) {
@@ -297,6 +328,7 @@ function statusClass(status) {
     const s = computeSummary(state.projects);
     if ($('totalProjects')) $('totalProjects').textContent = s.totalStores;
     if ($('totalDevicesCount')) $('totalDevicesCount').textContent = s.totalDevices;
+    if ($('totalDevices')) $('totalDevices').textContent = s.totalDevices;
     if ($('upDevicesCount')) $('upDevicesCount').textContent = s.up;
     if ($('downDevicesCount')) $('downDevicesCount').textContent = s.down;
     if ($('warningDevicesCount')) $('warningDevicesCount').textContent = s.warning;
@@ -328,6 +360,62 @@ function statusClass(status) {
     const filter = $('storeFilterSelect') ? $('storeFilterSelect').value : 'all';
     if (filter === 'all') return list;
     return list.filter(p => (p.status || 'unknown') === filter);
+  }
+
+  function listDevicesByStatus(status) {
+    const devices = [];
+    for (const project of state.projects || []) {
+      for (const device of (project.devices || [])) {
+        const normalized = (device.status || 'unknown').toLowerCase();
+        if (status === 'all' || normalized === status) {
+          devices.push({ projectId: project.id, projectName: project.name || project.id, ...device });
+        }
+      }
+    }
+    return devices;
+  }
+
+  function openSummaryDevicesModal(status) {
+    const list = listDevicesByStatus(status);
+    const titleMap = { all: 'All Devices', up: 'Devices Up', down: 'Devices Down' };
+
+    if ($('summaryDevicesTitle')) $('summaryDevicesTitle').textContent = titleMap[status] || 'Devices';
+    const container = $('summaryDevicesList');
+    if (!container) return;
+
+    if (!list.length) {
+      container.innerHTML = '<div class="text-gray-400">No devices found for this filter.</div>';
+      openModal('summaryDevicesModal');
+      return;
+    }
+
+    container.innerHTML = list.map((d) => {
+      const dot = statusClass(d.status || 'unknown');
+      return `
+        <button class="w-full text-left p-3 rounded-lg bg-black/20 hover:bg-black/30 border border-white/5"
+                data-project-id="${escapeHtml(d.projectId)}"
+                data-device-id="${escapeHtml(d.id)}">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <div class="font-semibold"><span class="status-dot ${dot}"></span>${escapeHtml(d.name || 'Device')}</div>
+              <div class="text-xs text-gray-400 mt-1">Project: ${escapeHtml(d.projectName)} - ${escapeHtml(d.type || 'other')} - ${escapeHtml(d.ip || '')}</div>
+            </div>
+            <div class="text-xs uppercase text-gray-300">${escapeHtml(d.status || 'unknown')}</div>
+          </div>
+        </button>
+      `;
+    }).join('');
+
+    container.querySelectorAll('button[data-project-id]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const projectId = btn.getAttribute('data-project-id');
+        const deviceId = btn.getAttribute('data-device-id');
+        closeModal('summaryDevicesModal');
+        showDeviceDetails(projectId, deviceId);
+      });
+    });
+
+    openModal('summaryDevicesModal');
   }
 
   function renderProjects() {
@@ -649,6 +737,14 @@ function statusClass(status) {
     $('closeEmailAlertsModal')?.addEventListener('click', () => closeModal('emailAlertsModal'));
     $('cancelEmailAlerts')?.addEventListener('click', () => closeModal('emailAlertsModal'));
     $('emailAlertsForm')?.addEventListener('submit', saveEmailAlerts);
+
+    $('totalDevicesCard')?.addEventListener('click', () => openSummaryDevicesModal('all'));
+    $('upDevicesCard')?.addEventListener('click', () => openSummaryDevicesModal('up'));
+    $('downDevicesCard')?.addEventListener('click', () => openSummaryDevicesModal('down'));
+    $('closeSummaryDevicesModal')?.addEventListener('click', () => closeModal('summaryDevicesModal'));
+    $('summaryDevicesModal')?.addEventListener('click', (e) => {
+      if (e.target && e.target.id === 'summaryDevicesModal') closeModal('summaryDevicesModal');
+    });
 
     $('storeSortSelect')?.addEventListener('change', renderProjects);
     $('storeFilterSelect')?.addEventListener('change', renderProjects);
