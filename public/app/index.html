@@ -376,6 +376,9 @@
 <button class="p-2 rounded-full bg-gray-800 hover:bg-gray-700" id="soundToggle" title="Mute alert sound">
 <i class="fas fa-volume-up"></i>
 </button>
+<button class="bg-indigo-600 hover:bg-indigo-700 px-4 py-2 rounded-lg font-medium" id="emailAlertsBtn">
+<i class="fas fa-envelope mr-2"></i> Email Alerts
+            </button>
 <button class="p-2 rounded-full bg-gray-800 hover:bg-gray-700" id="tvModeToggle">
 <i class="fas fa-tv mr-1"></i> TV Mode
             </button>
@@ -765,6 +768,34 @@
 <i class="fas fa-save mr-2"></i> Save Changes
                         </button>
 </div>
+</div>
+</form>
+</div>
+</div>
+<!-- Email Alerts Modal -->
+<div class="modal-overlay" id="emailAlertsModal">
+<div class="modal-content">
+<div class="flex justify-between items-center mb-6">
+<h2 class="text-2xl font-bold">Email Alerts</h2>
+<button class="text-gray-500 hover:text-gray-700 text-2xl" id="closeEmailAlertsModal">×</button>
+</div>
+<form id="emailAlertsForm" class="space-y-4">
+<label class="flex items-center gap-3">
+<input id="emailAlertsEnabled" type="checkbox" class="h-4 w-4"/>
+<span class="font-medium">Enable UP/DOWN transition emails</span>
+</label>
+<div>
+<label class="block mb-2 font-medium">Recipients (comma separated)</label>
+<textarea id="emailAlertsTo" rows="3" class="w-full p-3 border rounded-lg dark:bg-gray-800 dark:border-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-500" placeholder="ops@example.com, team@example.com"></textarea>
+<p class="text-sm text-gray-500 mt-1">Leave blank to send to your login email.</p>
+</div>
+<div>
+<label class="block mb-2 font-medium">Cooldown (minutes)</label>
+<input id="emailAlertsCooldown" type="number" min="1" max="10080" value="30" class="w-full p-3 border rounded-lg dark:bg-gray-800 dark:border-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-500"/>
+</div>
+<div class="flex justify-end gap-3 mt-6">
+<button type="button" id="cancelEmailAlerts" class="px-4 py-2 border rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800">Cancel</button>
+<button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Save Alerts</button>
 </div>
 </form>
 </div>

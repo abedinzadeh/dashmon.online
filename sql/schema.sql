@@ -72,6 +72,7 @@ CREATE INDEX IF NOT EXISTS idx_devices_user_id ON devices(user_id);
 CREATE INDEX IF NOT EXISTS idx_device_history_device_id ON device_history(device_id);
 CREATE INDEX IF NOT EXISTS idx_device_history_timestamp ON device_history(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_alerts_user_id ON alerts(user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_alerts_user_type ON alerts(user_id, type);
 
 -- Function to update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()
