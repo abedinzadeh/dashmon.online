@@ -350,6 +350,10 @@ test('POST /api/projects/:projectId/devices enforces per-project device limit', 
   const poolMock = {
     async query(sql) {
       if (sql.includes('SELECT 1 FROM stores')) return { rows: [{ ok: 1 }] };
+<<<<<<< HEAD
+=======
+      if (sql.includes('SELECT plan FROM users')) return { rows: [{ plan: 'premium' }] };
+>>>>>>> 6b39afa (Avoid plan helper name collision after manual merges)
       if (sql.includes('COUNT(*)::int AS count FROM devices')) return { rows: [{ count: 15 }] };
       throw new Error('Unexpected SQL for device limit test');
     }
@@ -373,7 +377,12 @@ test('POST /api/projects/:projectId/devices enforces per-project device limit', 
 
 test('POST /api/devices/:deviceId/test-now blocks free plan', async () => {
   const poolMock = {
+<<<<<<< HEAD
     async query() {
+=======
+    async query(sql) {
+      if (sql.includes('SELECT plan FROM users')) return { rows: [{ plan: 'free' }] };
+>>>>>>> 6b39afa (Avoid plan helper name collision after manual merges)
       throw new Error('DB should not be called for free plan test-now');
     }
   };
