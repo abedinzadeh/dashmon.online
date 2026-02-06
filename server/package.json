@@ -5,7 +5,7 @@
   "type": "commonjs",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test tests/routes.test.js"
+    "test": "node --test tests/*.test.js"
   },
   "dependencies": {
     "connect-redis": "^7.1.0",
