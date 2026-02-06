@@ -25,6 +25,10 @@
     deviceModal: null
   };
 
+  const chartLifecycle = typeof createChartLifecycle === 'function' ? createChartLifecycle() : null;
+  const sparkRenderGuard = chartLifecycle?.createRenderGuard ? chartLifecycle.createRenderGuard() : null;
+  let refreshTimer = null;
+
   function ensureLineChart(canvasId, label, points, existing) {
     const el = $(canvasId);
     if (!el || typeof Chart === 'undefined') return null;
@@ -110,10 +114,11 @@
     state.charts.tvMain = ensureStatusChart('tvStatusChart', summary, state.charts.tvMain);
   }
 
-  async function renderSparkline(deviceId) {
+  async function renderSparkline(deviceId, renderToken) {
     const canvasId = `spark_${deviceId}`;
     const el = $(canvasId);
     if (!el || typeof Chart === 'undefined') return;
+    if (sparkRenderGuard && !sparkRenderGuard.isCurrent(renderToken)) return;
 
     // fetch small history
     const res = await apiFetch(`/api/devices/${encodeURIComponent(deviceId)}/history?limit=20`);
@@ -123,7 +128,6 @@
     const labels = hist.map(h => '');
     const values = hist.map(h => (h.latency_ms == null ? null : Number(h.latency_ms)));
 
-    const existing = state.charts.sparks.get(deviceId);
     const cfg = {
       type: 'line',
       data: { labels, datasets: [{ data: values, tension: 0.3, pointRadius: 0, borderWidth: 2, fill: false }] },
@@ -135,11 +139,6 @@
       }
     };
 
-    if (existing) {
-      existing.data.datasets[0].data = values;
-      existing.update();
-      return;
-    }
     const chart = new Chart(el.getContext('2d'), cfg);
     state.charts.sparks.set(deviceId, chart);
   }
@@ -433,6 +432,9 @@ function statusClass(status) {
     if (tvLeft) tvLeft.innerHTML = '';
     if (tvRight) tvRight.innerHTML = '';
 
+    if (chartLifecycle) chartLifecycle.resetChartMap(state.charts.sparks);
+    const renderToken = sparkRenderGuard ? sparkRenderGuard.next() : 0;
+
     filtered.forEach((p, idx) => {
       const isExpanded = state.expanded.has(p.id);
       const overall = p.status || 'unknown';
@@ -529,7 +531,7 @@ function statusClass(status) {
 
       // Render sparklines for visible devices
       if (isExpanded) {
-        (p.devices || []).forEach(d => { setTimeout(() => renderSparkline(d.id), 0); });
+        (p.devices || []).forEach(d => { setTimeout(() => renderSparkline(d.id, renderToken), 0); });
       }
 
       // TV mode simple split
@@ -757,10 +759,15 @@ function statusClass(status) {
     await loadProjects();
 
     // Auto refresh (60s)
-    setInterval(() => loadProjects().catch(() => {}), 60 * 1000);
+    refreshTimer = setInterval(() => loadProjects().catch(() => {}), 60 * 1000);
   }
 
   document.addEventListener('DOMContentLoaded', () => {
+    window.addEventListener('beforeunload', () => {
+      if (refreshTimer) clearInterval(refreshTimer);
+      if (chartLifecycle) chartLifecycle.resetChartMap(state.charts.sparks);
+    }, { once: true });
+
     init().catch((e) => {
       console.error(e);
       alert('Dashboard error: ' + (e?.message || e));
