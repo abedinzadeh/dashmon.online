@@ -761,6 +761,13 @@ function statusClass(status) {
     $('totalDevicesCard')?.addEventListener('click', () => openSummaryDevicesModal('all'));
     $('upDevicesCard')?.addEventListener('click', () => openSummaryDevicesModal('up'));
     $('downDevicesCard')?.addEventListener('click', () => openSummaryDevicesModal('down'));
+
+    // TV mode summary cards (same behavior as normal cards)
+    $('tvTotalCard')?.addEventListener('click', () => openSummaryDevicesModal('all'));
+    $('tvOnlineCard')?.addEventListener('click', () => openSummaryDevicesModal('up'));
+    $('tvOfflineCard')?.addEventListener('click', () => openSummaryDevicesModal('down'));
+    $('tvWarningCard')?.addEventListener('click', () => openSummaryDevicesModal('warning'));
+    $('tvMaintenanceCard')?.addEventListener('click', () => openSummaryDevicesModal('maintenance'));
     $('closeSummaryDevicesModal')?.addEventListener('click', () => closeModal('summaryDevicesModal'));
     $('summaryDevicesModal')?.addEventListener('click', (e) => {
       if (e.target && e.target.id === 'summaryDevicesModal') closeModal('summaryDevicesModal');

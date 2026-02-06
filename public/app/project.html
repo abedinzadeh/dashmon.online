@@ -253,7 +253,7 @@
     const values = hist.map(x => x.latency_ms==null ? null : Number(x.latency_ms));
     const cfg = {
       type:'line',
-      data:{ labels: values.map(()=>''), datasets:[{ data: values, tension:0.3, pointRadius:0, borderWidth:2, fill:false }]},
+      data:{ labels: values.map(()=>''), datasets:[{ data: values, tension:0.3, pointRadius:0, borderWidth:2, fill:false, spanGaps:false }]},
       options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:{enabled:false}}, scales:{x:{display:false}, y:{display:false}}}
     };
     const existing = sparkCharts.get(deviceId);
@@ -279,7 +279,7 @@
     if(hr.ok && typeof Chart!=='undefined'){
       const hist = (await hr.json()).history || [];
       const labels = hist.map(h => new Date(h.ts).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}));
-      const values = hist.map(h => h.latency_ms==null ? 0 : Number(h.latency_ms));
+      const values = hist.map(h => (h.latency_ms==null ? null : Number(h.latency_ms)));
       if(deviceChart){
         deviceChart.data.labels = labels;
         deviceChart.data.datasets[0].data = values;

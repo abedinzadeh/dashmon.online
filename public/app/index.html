@@ -350,7 +350,29 @@
         .user-plan-badge.free {
             background: #6c757d;
         }
-    </style>
+    
+/* TV mode: make layout usable on mobile (stack columns) */
+@media (max-width: 768px) {
+  .tv-container {
+    flex-direction: column;
+    height: auto;
+    min-height: 100vh;
+  }
+  .tv-left-column,
+  .tv-right-column {
+    width: 100%;
+    height: auto;
+    max-height: none;
+    overflow: visible;
+    min-height: 0;
+  }
+  /* allow inner lists to scroll naturally */
+  .tv-left-column > div,
+  .tv-right-column > div {
+    overflow: visible;
+  }
+}
+</style>
 </head>
 <body class="dark-theme">
 <!-- Navigation Bar -->
