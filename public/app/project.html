@@ -225,6 +225,7 @@
       div.addEventListener('click', ()=> openDeviceDetails(d));
       const t = setTimeout(()=>renderSpark(d.id, renderToken),0);
       pendingSparkTimeouts.push(t);
+      setTimeout(()=>renderSpark(d.id, renderToken),0);
     });
   }
 
