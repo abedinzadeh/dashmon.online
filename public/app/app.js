@@ -30,7 +30,73 @@
   let refreshTimer = null;
   let pendingSparkTimeouts = [];
 
-  function ensureLineChart(canvasId, label, points, existing) {
+  
+function statusToLevel(s) {
+  s = String(s || '').toLowerCase();
+  if (s === 'up') return 1;
+  if (s === 'warning') return 0.5;
+  if (s === 'maintenance') return 0.25;
+  return 0; // down/unknown
+}
+
+function ensureMixedStatusLatencyChart(existing, canvasId, labels, statuses, latencies) {
+  const ctxEl = document.getElementById(canvasId);
+  if (!ctxEl || typeof Chart === 'undefined') return existing;
+  const ctx = ctxEl.getContext('2d');
+
+  const statusVals = statuses.map(statusToLevel);
+
+  const data = {
+    labels,
+    datasets: [
+      {
+        type: 'bar',
+        label: 'Status',
+        data: statusVals,
+        borderWidth: 0,
+        yAxisID: 'yStatus',
+        barPercentage: 1.0,
+        categoryPercentage: 1.0
+      },
+      {
+        type: 'line',
+        label: 'Latency (ms)',
+        data: latencies,
+        tension: 0.25,
+        pointRadius: 0,
+        borderWidth: 2,
+        fill: false,
+        spanGaps: false,
+        yAxisID: 'yLatency'
+      }
+    ]
+  };
+
+  const options = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { ticks: { maxTicksLimit: 8 } },
+      yStatus: {
+        position: 'left',
+        min: 0,
+        max: 1,
+        ticks: { stepSize: 1, callback: (v) => (v === 1 ? 'UP' : '') }
+      },
+      yLatency: { position: 'right', beginAtZero: true, grid: { drawOnChartArea: false } }
+    }
+  };
+
+  if (existing && typeof existing.destroy === 'function') {
+    // Chart.js can't safely change mixed chart types by updating config; recreate.
+    existing.destroy();
+    existing = null;
+  }
+  return new Chart(ctx, { data, options });
+}
+
+function ensureLineChart(canvasId, label, points, existing) {
     const el = $(canvasId);
     if (!el || typeof Chart === 'undefined') return null;
 
@@ -430,6 +496,27 @@ function statusClass(status) {
     openModal('summaryDevicesModal');
   }
 
+
+function bindTvSummaryCards() {
+  const onlineEl = document.getElementById('tvOnlineCard');
+  const downEl = document.getElementById('tvOfflineCard');
+  const maintEl = document.getElementById('tvMaintenanceCard');
+  if (!onlineEl || !downEl || !maintEl) return;
+
+  const click = (el, title, predicate) => {
+    el.style.cursor = 'pointer';
+    el.addEventListener('click', () => {
+      const list = (state.devices || []).filter(predicate);
+      openSummaryDevicesModal(list, title);
+    });
+  };
+
+  click(onlineEl, 'UP devices', (d) => String(d.status || '').toLowerCase() === 'up');
+  click(downEl, 'DOWN devices', (d) => String(d.status || '').toLowerCase() === 'down');
+  click(maintEl, 'Maintenance devices', (d) => String(d.status || '').toLowerCase() === 'maintenance');
+}
+
+
   function renderProjects() {
     const container = $('projectsContainer');
     const tvLeft = $('tvProjectsLeft') || $('tvStoresLeft');
@@ -546,6 +633,7 @@ function statusClass(status) {
           const t = setTimeout(() => renderSparkline(d.id, renderToken), 0);
           pendingSparkTimeouts.push(t);
         });
+        (p.devices || []).forEach(d => { setTimeout(() => renderSparkline(d.id, renderToken), 0); });
       }
 
       // TV mode simple split
@@ -761,13 +849,6 @@ function statusClass(status) {
     $('totalDevicesCard')?.addEventListener('click', () => openSummaryDevicesModal('all'));
     $('upDevicesCard')?.addEventListener('click', () => openSummaryDevicesModal('up'));
     $('downDevicesCard')?.addEventListener('click', () => openSummaryDevicesModal('down'));
-
-    // TV mode summary cards (same behavior as normal cards)
-    $('tvTotalCard')?.addEventListener('click', () => openSummaryDevicesModal('all'));
-    $('tvOnlineCard')?.addEventListener('click', () => openSummaryDevicesModal('up'));
-    $('tvOfflineCard')?.addEventListener('click', () => openSummaryDevicesModal('down'));
-    $('tvWarningCard')?.addEventListener('click', () => openSummaryDevicesModal('warning'));
-    $('tvMaintenanceCard')?.addEventListener('click', () => openSummaryDevicesModal('maintenance'));
     $('closeSummaryDevicesModal')?.addEventListener('click', () => closeModal('summaryDevicesModal'));
     $('summaryDevicesModal')?.addEventListener('click', (e) => {
       if (e.target && e.target.id === 'summaryDevicesModal') closeModal('summaryDevicesModal');

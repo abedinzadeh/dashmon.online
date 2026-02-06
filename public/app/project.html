@@ -32,12 +32,8 @@
           <div id="projectLocation" class="text-gray-400 text-sm mt-1"></div>
         </div>
         <div class="flex flex-wrap gap-2">
-          <button id="projectEditBtn" class="px-4 py-2 rounded-xl bg-gray-700 hover:bg-gray-600 font-semibold">
-            <i class="fas fa-pen mr-2"></i>Edit Project
-          </button>
-          <button id="projectDeleteBtn" class="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 font-semibold">
-            <i class="fas fa-trash mr-2"></i>Delete Project
-          </button>
+          <button id="editProjectBtn" class="px-4 py-2 rounded-xl bg-gray-700 hover:bg-gray-600 font-semibold"><i class="fas fa-pen mr-2"></i>Edit Project</button>
+          <button id="deleteProjectBtn" class="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 font-semibold"><i class="fas fa-trash mr-2"></i>Delete Project</button>
           <button id="projectEmailAlertsBtn" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-semibold">
             <i class="fas fa-envelope mr-2"></i>Email Alerts
           </button>
@@ -55,7 +51,7 @@
 
   <!-- Add Device Modal (re-using the same IDs for compatibility) -->
   <div id="deviceModal" class="fixed inset-0 hidden items-center justify-center bg-black/60 p-4">
-    <div class="w-full max-w-2xl rounded-2xl bg-gray-900 border border-gray-700 p-6 max-h-[90vh] overflow-y-auto">
+    <div class="w-full max-w-2xl rounded-2xl bg-gray-900 border border-gray-700 p-6">
       <div class="flex items-center justify-between mb-4">
         <h2 class="text-xl font-bold">Add Device</h2>
         <button id="closeDeviceModal" class="text-2xl text-gray-400 hover:text-white">&times;</button>
@@ -111,40 +107,9 @@
     </div>
   </div>
 
-
-  <!-- Edit Project Modal -->
-  <div id="projectEditModal" class="fixed inset-0 hidden items-center justify-center bg-black/60 p-4">
-    <div class="w-full max-w-2xl rounded-2xl bg-gray-900 border border-gray-700 p-6 max-h-[90vh] overflow-y-auto">
-      <div class="flex items-center justify-between mb-4 sticky top-0 bg-gray-900/95 backdrop-blur">
-        <h2 class="text-xl font-bold">Edit Project</h2>
-        <button id="projectCloseEditModal" class="text-2xl text-gray-400 hover:text-white">&times;</button>
-      </div>
-
-      <form id="projectEditForm" class="space-y-4">
-        <div>
-          <label class="block text-sm mb-1">Project Name *</label>
-          <input id="projectEditName" class="w-full p-3 rounded-lg bg-gray-800 border border-gray-700" required>
-        </div>
-        <div>
-          <label class="block text-sm mb-1">Location</label>
-          <input id="projectEditLocation" class="w-full p-3 rounded-lg bg-gray-800 border border-gray-700">
-        </div>
-        <div>
-          <label class="block text-sm mb-1">Notes</label>
-          <textarea id="projectEditNotes" class="w-full p-3 rounded-lg bg-gray-800 border border-gray-700" rows="3"></textarea>
-        </div>
-
-        <div class="flex justify-end gap-3 pt-2">
-          <button type="button" id="projectCancelEdit" class="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700">Cancel</button>
-          <button type="submit" class="px-4 py-2 rounded-lg bg-green-600 hover:bg-green-500 font-semibold">Save</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
   <!-- Email Alerts Modal -->
   <div id="projectEmailAlertsModal" class="fixed inset-0 hidden items-center justify-center bg-black/60 p-4">
-    <div class="w-full max-w-2xl rounded-2xl bg-gray-900 border border-gray-700 p-6 max-h-[90vh] overflow-y-auto">
+    <div class="w-full max-w-2xl rounded-2xl bg-gray-900 border border-gray-700 p-6">
       <div class="flex items-center justify-between mb-4">
         <h2 class="text-xl font-bold">Email Alerts</h2>
         <button id="projectCloseEmailAlertsModal" class="text-2xl text-gray-400 hover:text-white">&times;</button>
@@ -292,7 +257,7 @@
     const values = hist.map(x => x.latency_ms==null ? null : Number(x.latency_ms));
     const cfg = {
       type:'line',
-      data:{ labels: values.map(()=>''), datasets:[{ data: values, tension:0.3, pointRadius:0, borderWidth:2, fill:false, spanGaps:false }]},
+      data:{ labels: values.map(()=>''), datasets:[{ data: values, tension:0.3, pointRadius:0, borderWidth:2, fill:false }]},
       options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:{enabled:false}}, scales:{x:{display:false}, y:{display:false}}}
     };
     const existing = sparkCharts.get(deviceId);
@@ -415,47 +380,7 @@
   }
 
 
-  
-  function openProjectEditModal(){
-    if(!currentProject){ return; }
-    $('projectEditName').value = currentProject.name || '';
-    $('projectEditLocation').value = currentProject.location || '';
-    $('projectEditNotes').value = currentProject.notes || '';
-    $('projectEditModal').classList.remove('hidden'); $('projectEditModal').classList.add('flex');
-    scrollLock?.lock();
-  }
-  function closeProjectEditModal(){
-    const m = $('projectEditModal');
-    m.classList.add('hidden'); m.classList.remove('flex');
-    scrollLock?.unlock();
-  }
-  async function saveProjectEdit(e){
-    e.preventDefault();
-    const body = {
-      name: $('projectEditName').value.trim(),
-      location: $('projectEditLocation').value.trim() || null,
-      notes: $('projectEditNotes').value.trim() || null
-    };
-    const r = await apiFetch('/api/projects/' + encodeURIComponent(projectId), { method:'PUT', body });
-    if(!r.ok){
-      const msg=(await r.json().catch(()=>null))?.error || `Failed (${r.status})`;
-      alert(msg); return;
-    }
-    closeProjectEditModal();
-    await load();
-  }
-  async function deleteProject(){
-    if(!projectId) return;
-    if(!confirm('Delete this project and all devices?')) return;
-    const r = await apiFetch('/api/projects/' + encodeURIComponent(projectId), { method:'DELETE' });
-    if(!r.ok){
-      const msg=(await r.json().catch(()=>null))?.error || `Failed (${r.status})`;
-      alert(msg); return;
-    }
-    location.href='/app/';
-  }
-
-function openEmailAlertsModal(){ $('projectEmailAlertsModal').classList.remove('hidden'); $('projectEmailAlertsModal').classList.add('flex'); scrollLock?.lock(); }
+  function openEmailAlertsModal(){ $('projectEmailAlertsModal').classList.remove('hidden'); $('projectEmailAlertsModal').classList.add('flex'); scrollLock?.lock(); }
   function closeEmailAlertsModal(){ $('projectEmailAlertsModal').classList.add('hidden'); $('projectEmailAlertsModal').classList.remove('flex'); scrollLock?.unlock(); }
 
   async function loadEmailAlertConfig(){
@@ -522,6 +447,45 @@ function openEmailAlertsModal(){ $('projectEmailAlertsModal').classList.remove('
     return String(str||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
   }
 
+  
+  function openEditProjectModal(project){
+    document.getElementById('editProjectName').value = project.name || '';
+    document.getElementById('editProjectLocation').value = project.location || '';
+    document.getElementById('editProjectNotes').value = project.notes || '';
+    const modal = document.getElementById('editProjectModal');
+    modal.classList.remove('hidden'); modal.classList.add('flex');
+    scrollLock?.lock();
+  }
+  function closeEditProjectModal(){
+    const modal = document.getElementById('editProjectModal');
+    modal.classList.add('hidden'); modal.classList.remove('flex');
+    scrollLock?.unlock();
+  }
+  async function saveProjectEdit(e){
+    e.preventDefault();
+    const body = {
+      name: document.getElementById('editProjectName').value.trim(),
+      location: document.getElementById('editProjectLocation').value.trim() || null,
+      notes: document.getElementById('editProjectNotes').value.trim() || null
+    };
+    const r = await apiFetch('/api/projects/' + encodeURIComponent(projectId), { method:'PUT', body });
+    if(!r.ok){
+      const msg=(await r.json().catch(()=>null))?.error || `Failed (${r.status})`;
+      alert(msg); return;
+    }
+    closeEditProjectModal();
+    load();
+  }
+  async function deleteProject(){
+    if(!confirm('Delete this project and all its devices/history?')) return;
+    const r = await apiFetch('/api/projects/' + encodeURIComponent(projectId), { method:'DELETE' });
+    if(!r.ok){
+      const msg=(await r.json().catch(()=>null))?.error || `Failed (${r.status})`;
+      alert(msg); return;
+    }
+    location.href='/app/';
+  }
+
   document.addEventListener('DOMContentLoaded', async ()=>{
     window.addEventListener('beforeunload', ()=>{
       if(deviceChart){ deviceChart.destroy(); deviceChart = null; }
@@ -533,16 +497,15 @@ function openEmailAlertsModal(){ $('projectEmailAlertsModal').classList.remove('
     if(!await checkAuth()) return;
     $('logoutBtn').addEventListener('click', logout);
     $('addDeviceBtn').addEventListener('click', openModal);
-    $('projectEditBtn').addEventListener('click', openProjectEditModal);
-    $('projectDeleteBtn').addEventListener('click', deleteProject);
+    $('editProjectBtn').addEventListener('click', ()=> openEditProjectModal(currentProject || { id: projectId }));
+    $('deleteProjectBtn').addEventListener('click', deleteProject);
     $('projectEmailAlertsBtn').addEventListener('click', openProjectEmailAlerts);
     $('projectCloseEmailAlertsModal').addEventListener('click', closeEmailAlertsModal);
     $('projectCancelEmailAlerts').addEventListener('click', closeEmailAlertsModal);
-    $('projectCloseEditModal').addEventListener('click', closeProjectEditModal);
-    $('projectCancelEdit').addEventListener('click', closeProjectEditModal);
-    $('projectEditForm').addEventListener('submit', saveProjectEdit);
-    $('projectEditModal').addEventListener('click', (e)=>{ if(e.target.id==='projectEditModal') closeProjectEditModal(); });
     $('projectEmailAlertsForm').addEventListener('submit', saveProjectEmailAlerts);
+    $('closeEditProjectModal').addEventListener('click', closeEditProjectModal);
+    $('cancelEditProject').addEventListener('click', closeEditProjectModal);
+    $('editProjectForm').addEventListener('submit', saveProjectEdit);
     $('closeDeviceModal').addEventListener('click', closeModal);
     $('cancelDevice').addEventListener('click', closeModal);
     $('deviceForm').addEventListener('submit', addDevice);
@@ -566,9 +529,9 @@ function openEmailAlertsModal(){ $('projectEmailAlertsModal').classList.remove('
 </script>
 
   <!-- Device Details Modal -->
-  <div id="projectDeviceDetailsModal" class="fixed inset-0 bg-black/70 hidden items-start justify-center z-50 overflow-y-auto p-4 sm:p-6">
-    <div class="w-full max-w-3xl bg-gray-900 border border-white/10 rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
-      <div class="flex items-center justify-between px-6 py-4 border-b border-white/10 sticky top-0 bg-gray-900 z-10">
+  <div id="projectDeviceDetailsModal" class="fixed inset-0 bg-black/70 hidden items-center justify-center z-50">
+    <div class="w-full max-w-3xl bg-gray-900 border border-white/10 rounded-2xl shadow-2xl overflow-hidden">
+      <div class="flex items-center justify-between px-6 py-4 border-b border-white/10">
         <div class="flex items-center gap-3">
           <span id="pdStatusDot" class="inline-block w-3 h-3 rounded-full bg-gray-500"></span>
           <div>
@@ -662,5 +625,34 @@ function openEmailAlertsModal(){ $('projectEmailAlertsModal').classList.remove('
     </div>
   </div>
 
+
+  <!-- Edit Project Modal -->
+  <div id="editProjectModal" class="fixed inset-0 hidden items-center justify-center bg-black/60 p-4">
+    <div class="w-full max-w-2xl rounded-2xl bg-gray-900 border border-gray-700 p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-xl font-bold">Edit Project</h2>
+        <button id="closeEditProjectModal" class="text-2xl text-gray-400 hover:text-white">&times;</button>
+      </div>
+
+      <form id="editProjectForm" class="space-y-4">
+        <div>
+          <label class="block text-sm mb-1">Project Name *</label>
+          <input id="editProjectName" class="w-full p-3 rounded-lg bg-gray-800 border border-gray-700" required>
+        </div>
+        <div>
+          <label class="block text-sm mb-1">Location</label>
+          <input id="editProjectLocation" class="w-full p-3 rounded-lg bg-gray-800 border border-gray-700">
+        </div>
+        <div>
+          <label class="block text-sm mb-1">Notes</label>
+          <textarea id="editProjectNotes" class="w-full p-3 rounded-lg bg-gray-800 border border-gray-700" rows="3"></textarea>
+        </div>
+        <div class="flex justify-end gap-3 pt-2">
+          <button type="button" id="cancelEditProject" class="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700">Cancel</button>
+          <button type="submit" class="px-4 py-2 rounded-lg bg-green-600 hover:bg-green-500 font-semibold">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
 </body>
 </html>

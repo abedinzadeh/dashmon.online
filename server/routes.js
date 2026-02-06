@@ -205,6 +205,63 @@ router.get('/api/projects/:projectId', requireAuth, async (req, res) => {
   }
 });
 
+
+router.put('/api/projects/:projectId', requireAuth, async (req, res) => {
+  const projectId = req.params.projectId;
+  const { name, location, notes } = req.body || {};
+  if (!name) return res.status(400).json({ error: 'Project name is required' });
+
+  try {
+    const { rows } = await pool.query(
+      `UPDATE stores
+         SET name=$3, location=$4, notes=$5, updated_at=NOW()
+       WHERE user_id=$1 AND id=$2
+       RETURNING id, name, location, notes, created_at, updated_at`,
+      [req.user.id, projectId, name, location || null, notes || null]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Project not found' });
+    res.json({ project: rows[0] });
+  } catch (e) {
+    console.error('Error updating project:', e);
+    res.status(500).json({ error: 'Failed to update project' });
+  }
+});
+
+router.delete('/api/projects/:projectId', requireAuth, async (req, res) => {
+  const projectId = req.params.projectId;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Ensure project exists
+    const pr = await client.query('SELECT id FROM stores WHERE user_id=$1 AND id=$2', [req.user.id, projectId]);
+    if (!pr.rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    const devs = await client.query('SELECT id FROM devices WHERE user_id=$1 AND store_id=$2', [req.user.id, projectId]);
+    const deviceIds = devs.rows.map(r => r.id);
+
+    if (deviceIds.length) {
+      await client.query('DELETE FROM device_history WHERE user_id=$1 AND device_id = ANY($2::text[])', [req.user.id, deviceIds]);
+      await client.query('DELETE FROM devices WHERE user_id=$1 AND store_id=$2', [req.user.id, projectId]);
+    }
+
+    await client.query('DELETE FROM stores WHERE user_id=$1 AND id=$2', [req.user.id, projectId]);
+    await client.query('COMMIT');
+
+    res.json({ ok: true });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    console.error('Error deleting project:', e);
+    res.status(500).json({ error: 'Failed to delete project' });
+  } finally {
+    client.release();
+  }
+});
+
 // Legacy alias
 router.get('/api/stores/:storeId', requireAuth, async (req, res) => {
   const storeId = req.params.storeId;
