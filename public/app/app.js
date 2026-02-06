@@ -546,6 +546,7 @@ function statusClass(status) {
           const t = setTimeout(() => renderSparkline(d.id, renderToken), 0);
           pendingSparkTimeouts.push(t);
         });
+        (p.devices || []).forEach(d => { setTimeout(() => renderSparkline(d.id, renderToken), 0); });
       }
 
       // TV mode simple split
@@ -786,6 +787,7 @@ function statusClass(status) {
         state.charts.deviceModal.destroy();
         state.charts.deviceModal = null;
       }
+      if (chartLifecycle) chartLifecycle.resetChartMap(state.charts.sparks);
     }, { once: true });
 
     init().catch((e) => {
