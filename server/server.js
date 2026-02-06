@@ -1,54 +1,6 @@
-require('dotenv').config();
-const express = require('express');
-const session = require('express-session');
-const { createClient } = require('redis');
-const RedisStore = require('connect-redis').default;
+const { createApp } = require('./app');
 
-const { passport } = require('./auth');
-const { router } = require('./routes');
-
-const app = express();
-
-// Redis session store
-const redisClient = createClient({ url: process.env.REDIS_URL });
-redisClient.connect().catch(console.error);
-
-app.set('trust proxy', 1);
-
-app.use(session({
-  store: new RedisStore({ client: redisClient }),
-  secret: process.env.SESSION_SECRET,
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    secure: process.env.NODE_ENV === 'production',
-    httpOnly: true,
-    sameSite: 'lax',
-    maxAge: 1000 * 60 * 60 * 24 * 7
-  }
-}));
-
-app.use(passport.initialize());
-app.use(passport.session());
-
-// Auth routes
-app.get('/auth/google',
-  passport.authenticate('google', { scope: ['profile','email'], prompt: 'select_account' })
-);
-
-app.get('/auth/google/callback',
-  passport.authenticate('google', { failureRedirect: '/login.html' }),
-  (req, res) => {
-    console.log('Google OAuth successful, user:', req.user ? req.user.email : 'no user');
-    res.redirect('/app/');
-  }
-);
-
-// Static UI
-app.use(express.static('/app/public'));
-
-// API routes
-app.use(router);
-
+const app = createApp();
 const port = process.env.PORT ? Number(process.env.PORT) : 3000;
+
 app.listen(port, () => console.log(`dashmon app listening on ${port}`));

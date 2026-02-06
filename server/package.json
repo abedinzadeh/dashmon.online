@@ -4,7 +4,8 @@
   "main": "server.js",
   "type": "commonjs",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test tests/routes.test.js tests/session-refresh.test.js"
   },
   "dependencies": {
     "connect-redis": "^7.1.0",
