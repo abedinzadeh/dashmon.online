@@ -3,85 +3,561 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Dashmon - Infrastructure Monitoring</title>
+  <title>Dashmon - Real-time Infrastructure Monitoring</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css">
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+    
+    :root {
+      --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      --secondary-gradient: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+      --glow-blue: rgba(59, 130, 246, 0.5);
+    }
+    
+    * {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    }
+    
+    body {
+      background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+      background-attachment: fixed;
+    }
+    
+    .glass-card {
+      background: rgba(30, 41, 59, 0.7);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      transition: all 0.3s ease;
+    }
+    
+    .glass-card:hover {
+      border-color: rgba(99, 102, 241, 0.3);
+      transform: translateY(-5px);
+    }
+    
+    .hero-glow {
+      text-shadow: 0 0 40px rgba(59, 130, 246, 0.5);
+    }
+    
+    .pulse-animation {
+      animation: pulse 2s infinite;
+    }
+    
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
+      70% { box-shadow: 0 0 0 15px rgba(59, 130, 246, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+    }
+    
+    .floating {
+      animation: floating 3s ease-in-out infinite;
+    }
+    
+    @keyframes floating {
+      0% { transform: translateY(0px); }
+      50% { transform: translateY(-10px); }
+      100% { transform: translateY(0px); }
+    }
+    
+    .gradient-text {
+      background: var(--primary-gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    
+    .dashboard-preview {
+      background: linear-gradient(135deg, rgba(30, 41, 59, 0.9) 0%, rgba(15, 23, 42, 0.9) 100%);
+      border-radius: 20px;
+      overflow: hidden;
+      position: relative;
+    }
+    
+    .dashboard-preview::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: var(--primary-gradient);
+    }
+    
+    .status-indicator {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 8px;
+    }
+    
+    .status-up { background-color: #10b981; box-shadow: 0 0 10px #10b981; }
+    .status-down { background-color: #ef4444; box-shadow: 0 0 10px #ef4444; }
+    
+    .feature-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 16px;
+      background: rgba(99, 102, 241, 0.1);
+      border: 1px solid rgba(99, 102, 241, 0.2);
+    }
+  </style>
 </head>
-<body class="bg-gray-950 text-white min-h-screen">
-  <div class="max-w-6xl mx-auto px-6 py-10">
-    <header class="flex items-center justify-between">
-      <div class="flex items-center gap-3">
-        <div class="w-10 h-10 rounded-xl bg-blue-600/20 flex items-center justify-center">
-          <i class="fas fa-chart-line text-blue-400"></i>
+<body class="text-white min-h-screen overflow-x-hidden">
+  <!-- Animated background elements -->
+  <div class="fixed inset-0 overflow-hidden pointer-events-none">
+    <div class="absolute top-1/4 left-10 w-72 h-72 bg-purple-500/10 rounded-full blur-3xl"></div>
+    <div class="absolute bottom-1/4 right-10 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl"></div>
+  </div>
+
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative z-10">
+    <!-- Header -->
+    <header class="flex flex-col sm:flex-row items-center justify-between mb-16 animate__animated animate__fadeIn">
+      <div class="flex items-center gap-3 mb-6 sm:mb-0">
+        <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center pulse-animation">
+          <i class="fas fa-chart-network text-white text-xl"></i>
         </div>
         <div>
-          <div class="text-xl font-bold">Dashmon</div>
-          <div class="text-xs text-gray-400">Online infrastructure monitoring</div>
+          <div class="text-2xl font-bold flex items-center">
+            Dashmon
+            <span class="ml-2 px-2 py-1 text-xs bg-green-500/20 text-green-400 rounded-full">v2.0</span>
+          </div>
+          <div class="text-sm text-gray-400">Enterprise-grade monitoring platform</div>
         </div>
       </div>
-      <div class="flex items-center gap-3">
-        <a href="/login.html" class="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 font-medium">Login</a>
-        <a href="/auth/google" class="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 font-medium">
-          <i class="fab fa-google mr-2"></i> Sign in with Google
+      
+      <nav class="flex items-center gap-4">
+        <a href="#features" class="px-4 py-2 text-gray-300 hover:text-white transition-colors">Features</a>
+        <a href="#pricing" class="px-4 py-2 text-gray-300 hover:text-white transition-colors">Pricing</a>
+        <a href="/login.html" class="px-4 py-2 rounded-lg bg-gray-800/50 hover:bg-gray-700/50 font-medium backdrop-blur-sm border border-gray-700">Login</a>
+        <a href="/auth/google" class="px-4 py-2 rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 font-medium flex items-center gap-2 shadow-lg shadow-blue-500/20">
+          <i class="fab fa-google"></i>
+          Get Started
         </a>
-      </div>
+      </nav>
     </header>
 
-    <main class="mt-14 grid md:grid-cols-2 gap-10 items-center">
-      <div>
-        <h1 class="text-4xl md:text-5xl font-extrabold leading-tight">
-          Monitor your servers, firewalls, and services — <span class="text-blue-400">public SaaS</span> style.
+    <!-- Hero Section -->
+    <main class="mt-8 grid lg:grid-cols-2 gap-12 items-center mb-20">
+      <div class="animate__animated animate__fadeInLeft">
+        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 text-blue-400 text-sm mb-6">
+          <i class="fas fa-bolt"></i>
+          <span>Trusted by 2,500+ teams worldwide</span>
+        </div>
+        
+        <h1 class="text-5xl lg:text-6xl font-bold leading-tight mb-6">
+          Monitor your entire
+          <span class="gradient-text hero-glow">infrastructure</span>
+          in one dashboard
         </h1>
-        <p class="mt-5 text-gray-300 text-lg">
-          Dashmon gives you a clean dashboard, history, and alerts.
-          Free users are checked every <span class="font-semibold">2 hours</span>, premium every <span class="font-semibold">15 minutes</span>.
-          Data retention is <span class="font-semibold">90 days</span>.
+        
+        <p class="text-xl text-gray-300 mb-8 leading-relaxed">
+          Real-time monitoring for servers, firewalls, databases, and services. 
+          Get alerted before issues affect your users. From free 2-hour checks 
+          to enterprise-grade 15-second monitoring.
         </p>
 
-        <div class="mt-7 flex flex-wrap gap-3">
-          <a href="/auth/google" class="px-5 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 font-semibold">
-            <i class="fas fa-rocket mr-2"></i> Start monitoring
+        <div class="flex flex-wrap gap-4 mb-10">
+          <a href="/auth/google" class="px-6 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 font-semibold text-lg flex items-center gap-3 shadow-xl shadow-blue-500/25 transition-all hover:scale-105">
+            <i class="fas fa-rocket"></i>
+            Start Monitoring - Free Forever
           </a>
-          <a href="/app/" class="px-5 py-3 rounded-xl bg-gray-800 hover:bg-gray-700 font-semibold">
-            <i class="fas fa-gauge-high mr-2"></i> Open dashboard
+          <a href="#demo" class="px-6 py-3 rounded-xl bg-gray-800/50 hover:bg-gray-700/50 font-semibold text-lg flex items-center gap-3 border border-gray-700 backdrop-blur-sm">
+            <i class="fas fa-play-circle"></i>
+            Watch Demo
           </a>
         </div>
 
-        <div class="mt-8 grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div class="p-4 rounded-xl bg-gray-900 border border-gray-800">
-            <div class="text-sm text-gray-400">Free plan</div>
-            <div class="text-xl font-bold mt-1">2-hour checks</div>
+        <div class="flex items-center gap-6 text-gray-400">
+          <div class="flex items-center gap-2">
+            <i class="fas fa-check-circle text-green-500"></i>
+            <span>No credit card required</span>
           </div>
-          <div class="p-4 rounded-xl bg-gray-900 border border-gray-800">
-            <div class="text-sm text-gray-400">Premium plan</div>
-            <div class="text-xl font-bold mt-1">15-min checks</div>
+          <div class="flex items-center gap-2">
+            <i class="fas fa-check-circle text-green-500"></i>
+            <span>14-day premium trial</span>
           </div>
-          <div class="p-4 rounded-xl bg-gray-900 border border-gray-800">
-            <div class="text-sm text-gray-400">Retention</div>
-            <div class="text-xl font-bold mt-1">90 days</div>
+          <div class="flex items-center gap-2">
+            <i class="fas fa-check-circle text-green-500"></i>
+            <span>GDPR compliant</span>
           </div>
         </div>
       </div>
 
-      <div class="p-6 rounded-2xl bg-gradient-to-br from-gray-900 to-gray-950 border border-gray-800 shadow-xl">
-        <div class="text-sm text-gray-400 mb-4">What you get</div>
-        <ul class="space-y-3 text-gray-200">
-          <li class="flex gap-3"><i class="fas fa-check text-green-400 mt-1"></i><span>Projects (formerly stores) and devices</span></li>
-          <li class="flex gap-3"><i class="fas fa-check text-green-400 mt-1"></i><span>Status history (90 days)</span></li>
-          <li class="flex gap-3"><i class="fas fa-check text-green-400 mt-1"></i><span>Sound alert on increased down devices</span></li>
-          <li class="flex gap-3"><i class="fas fa-check text-green-400 mt-1"></i><span>Email alerts via your own SMTP (optional)</span></li>
-        </ul>
-
-        <div class="mt-6 p-4 rounded-xl bg-black/30 border border-gray-800">
-          <div class="text-sm text-gray-400">No paid dependencies</div>
-          <div class="mt-1 text-gray-200">Auth: Google OAuth • DB: Postgres • Sessions: Redis</div>
+      <!-- Dashboard Preview -->
+      <div class="dashboard-preview p-6 animate__animated animate__fadeInRight floating">
+        <div class="flex items-center justify-between mb-6">
+          <div>
+            <h3 class="text-lg font-bold">Live Dashboard Preview</h3>
+            <p class="text-sm text-gray-400">Real-time monitoring data</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="status-indicator status-up"></span>
+            <span class="text-sm">12 systems online</span>
+          </div>
+        </div>
+        
+        <!-- Mini Graph -->
+        <div class="mb-6">
+          <div class="h-40">
+            <canvas id="miniChart"></canvas>
+          </div>
+        </div>
+        
+        <!-- Server Status -->
+        <div class="grid grid-cols-2 gap-4 mb-6">
+          <div class="glass-card p-4 rounded-lg">
+            <div class="flex items-center justify-between">
+              <div>
+                <div class="text-sm text-gray-400">Web Servers</div>
+                <div class="text-2xl font-bold">4/4</div>
+              </div>
+              <div class="text-green-500">
+                <i class="fas fa-server"></i>
+              </div>
+            </div>
+          </div>
+          <div class="glass-card p-4 rounded-lg">
+            <div class="flex items-center justify-between">
+              <div>
+                <div class="text-sm text-gray-400">Database</div>
+                <div class="text-2xl font-bold">100%</div>
+              </div>
+              <div class="text-blue-500">
+                <i class="fas fa-database"></i>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Uptime Stats -->
+        <div class="glass-card p-4 rounded-lg">
+          <div class="text-sm text-gray-400 mb-2">30-day Uptime</div>
+          <div class="flex items-center justify-between">
+            <div class="w-full bg-gray-700 rounded-full h-2">
+              <div class="bg-gradient-to-r from-green-500 to-emerald-400 h-2 rounded-full" style="width: 99.9%"></div>
+            </div>
+            <div class="ml-4 text-lg font-bold">99.9%</div>
+          </div>
         </div>
       </div>
     </main>
 
-    <footer class="mt-14 text-center text-gray-500 text-sm">
-      © Dashmon • dashmon.online
+    <!-- Features Section -->
+    <section id="features" class="mt-32 mb-24">
+      <div class="text-center mb-16">
+        <h2 class="text-4xl font-bold mb-4">Everything you need for monitoring</h2>
+        <p class="text-xl text-gray-400 max-w-3xl mx-auto">From single servers to complex microservices architectures</p>
+      </div>
+      
+      <div class="grid md:grid-cols-3 gap-8">
+        <div class="glass-card p-8 rounded-2xl hover:border-blue-500/30">
+          <div class="feature-icon">
+            <i class="fas fa-bolt text-blue-500 text-xl"></i>
+          </div>
+          <h3 class="text-xl font-bold mb-3">Real-time Alerts</h3>
+          <p class="text-gray-400 mb-4">Get instant notifications via email, Slack, or webhook when issues arise</p>
+          <ul class="space-y-2 text-sm">
+            <li class="flex items-center gap-2"><i class="fas fa-check text-green-500"></i> Multi-channel alerts</li>
+            <li class="flex items-center gap-2"><i class="fas fa-check text-green-500"></i> Alert escalation</li>
+            <li class="flex items-center gap-2"><i class="fas fa-check text-green-500"></i> Smart thresholding</li>
+          </ul>
+        </div>
+        
+        <div class="glass-card p-8 rounded-2xl hover:border-purple-500/30">
+          <div class="feature-icon">
+            <i class="fas fa-chart-line text-purple-500 text-xl"></i>
+          </div>
+          <h3 class="text-xl font-bold mb-3">Advanced Analytics</h3>
+          <p class="text-gray-400 mb-4">Deep insights with custom dashboards, metrics, and performance trends</p>
+          <ul class="space-y-2 text-sm">
+            <li class="flex items-center gap-2"><i class="fas fa-check text-green-500"></i> Custom dashboards</li>
+            <li class="flex items-center gap-2"><i class="fas fa-check text-green-500"></i> Historical data (90 days)</li>
+            <li class="flex items-center gap-2"><i class="fas fa-check text-green-500"></i> Export reports</li>
+          </ul>
+        </div>
+        
+        <div class="glass-card p-8 rounded-2xl hover:border-green-500/30">
+          <div class="feature-icon">
+            <i class="fas fa-shield-alt text-green-500 text-xl"></i>
+          </div>
+          <h3 class="text-xl font-bold mb-3">Security First</h3>
+          <p class="text-gray-400 mb-4">Enterprise-grade security with role-based access and audit logs</p>
+          <ul class="space-y-2 text-sm">
+            <li class="flex items-center gap-2"><i class="fas fa-check text-green-500"></i> SSO & 2FA</li>
+            <li class="flex items-center gap-2"><i class="fas fa-check text-green-500"></i> Role-based access</li>
+            <li class="flex items-center gap-2"><i class="fas fa-check text-green-500"></i> Audit logging</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Pricing Section -->
+    <section id="pricing" class="mt-32 mb-24">
+      <div class="text-center mb-16">
+        <h2 class="text-4xl font-bold mb-4">Simple, Transparent Pricing</h2>
+        <p class="text-xl text-gray-400">Start free, upgrade when you need more</p>
+      </div>
+      
+      <div class="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
+        <!-- Free Plan -->
+        <div class="glass-card p-8 rounded-2xl border border-gray-800">
+          <div class="text-center mb-8">
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gray-800 text-gray-300 text-sm mb-4">
+              <i class="fas fa-user"></i>
+              Perfect for starters
+            </div>
+            <h3 class="text-2xl font-bold mb-2">Free</h3>
+            <div class="text-5xl font-bold mb-4">$0<span class="text-lg text-gray-400">/forever</span></div>
+          </div>
+          
+          <ul class="space-y-4 mb-8">
+            <li class="flex items-center gap-3"><i class="fas fa-check text-green-500"></i> 10 monitored endpoints</li>
+            <li class="flex items-center gap-3"><i class="fas fa-check text-green-500"></i> 2-hour check intervals</li>
+            <li class="flex items-center gap-3"><i class="fas fa-check text-green-500"></i> 90-day data retention</li>
+            <li class="flex items-center gap-3"><i class="fas fa-check text-green-500"></i> Email alerts</li>
+            <li class="flex items-center gap-3"><i class="fas fa-check text-green-500"></i> Basic dashboards</li>
+          </ul>
+          
+          <a href="/auth/google" class="block w-full py-3 rounded-lg bg-gray-800 hover:bg-gray-700 text-center font-semibold">
+            Get Started Free
+          </a>
+        </div>
+        
+        <!-- Pro Plan -->
+        <div class="glass-card p-8 rounded-2xl border-2 border-blue-500 relative bg-gradient-to-b from-blue-500/5 to-transparent transform scale-105">
+          <div class="absolute -top-3 left-1/2 transform -translate-x-1/2">
+            <span class="px-4 py-1 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full text-sm font-semibold">
+              MOST POPULAR
+            </span>
+          </div>
+          
+          <div class="text-center mb-8">
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/20 text-blue-400 text-sm mb-4">
+              <i class="fas fa-star"></i>
+              For growing teams
+            </div>
+            <h3 class="text-2xl font-bold mb-2">Professional</h3>
+            <div class="text-5xl font-bold mb-4">$29<span class="text-lg text-gray-400">/month</span></div>
+          </div>
+          
+          <ul class="space-y-4 mb-8">
+            <li class="flex items-center gap-3"><i class="fas fa-check text-blue-500"></i> 100 monitored endpoints</li>
+            <li class="flex items-center gap-3"><i class="fas fa-check text-blue-500"></i> 15-minute check intervals</li>
+            <li class="flex items-center gap-3"><i class="fas fa-check text-blue-500"></i> 1-year data retention</li>
+            <li class="flex items-center gap-3"><i class="fas fa-check text-blue-500"></i> Multi-channel alerts</li>
+            <li class="flex items-center gap-3"><i class="fas fa-check text-blue-500"></i> Advanced analytics</li>
+            <li class="flex items-center gap-3"><i class="fas fa-check text-blue-500"></i> API access</li>
+          </ul>
+          
+          <a href="/auth/google" class="block w-full py-3 rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-center font-semibold shadow-lg shadow-blue-500/25">
+            Start 14-day Trial
+          </a>
+        </div>
+        
+        <!-- Enterprise Plan -->
+        <div class="glass-card p-8 rounded-2xl border border-gray-800">
+          <div class="text-center mb-8">
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-500/20 text-purple-400 text-sm mb-4">
+              <i class="fas fa-building"></i>
+              For organizations
+            </div>
+            <h3 class="text-2xl font-bold mb-2">Enterprise</h3>
+            <div class="text-5xl font-bold mb-4">Custom</div>
+          </div>
+          
+          <ul class="space-y-4 mb-8">
+            <li class="flex items-center gap-3"><i class="fas fa-check text-purple-500"></i> Unlimited endpoints</li>
+            <li class="flex items-center gap-3"><i class="fas fa-check text-purple-500"></i> 15-second check intervals</li>
+            <li class="flex items-center gap-3"><i class="fas fa-check text-purple-500"></i> Unlimited retention</li>
+            <li class="flex items-center gap-3"><i class="fas fa-check text-purple-500"></i> SLA guarantee</li>
+            <li class="flex items-center gap-3"><i class="fas fa-check text-purple-500"></i> Dedicated support</li>
+            <li class="flex items-center gap-3"><i class="fas fa-check text-purple-500"></i> Custom integrations</li>
+          </ul>
+          
+          <a href="#contact" class="block w-full py-3 rounded-lg bg-gray-800 hover:bg-gray-700 text-center font-semibold">
+            Contact Sales
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="mt-32 mb-20">
+      <div class="glass-card p-12 rounded-3xl text-center relative overflow-hidden">
+        <div class="absolute top-0 right-0 w-64 h-64 bg-blue-500/10 rounded-full -translate-y-32 translate-x-32"></div>
+        <div class="absolute bottom-0 left-0 w-64 h-64 bg-purple-500/10 rounded-full translate-y-32 -translate-x-32"></div>
+        
+        <div class="relative z-10">
+          <h2 class="text-4xl font-bold mb-6">Ready to monitor your infrastructure?</h2>
+          <p class="text-xl text-gray-300 mb-8 max-w-2xl mx-auto">Join thousands of teams that trust Dashmon for their critical monitoring needs</p>
+          
+          <div class="flex flex-col sm:flex-row gap-4 justify-center">
+            <a href="/auth/google" class="px-8 py-4 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 font-semibold text-lg flex items-center justify-center gap-3 shadow-xl shadow-blue-500/25">
+              <i class="fas fa-rocket"></i>
+              Start Free Trial
+            </a>
+            <a href="/app/" class="px-8 py-4 rounded-xl bg-gray-800/50 hover:bg-gray-700/50 font-semibold text-lg flex items-center justify-center gap-3 border border-gray-700">
+              <i class="fas fa-gauge-high"></i>
+              View Live Demo
+            </a>
+          </div>
+          
+          <p class="mt-6 text-gray-400 text-sm">
+            No credit card required • 14-day premium trial • Free forever plan available
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="mt-16 pt-8 border-t border-gray-800">
+      <div class="grid md:grid-cols-4 gap-8 mb-8">
+        <div>
+          <div class="flex items-center gap-3 mb-4">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+              <i class="fas fa-chart-network text-white"></i>
+            </div>
+            <div class="text-xl font-bold">Dashmon</div>
+          </div>
+          <p class="text-gray-400 text-sm">Enterprise infrastructure monitoring made simple and accessible for everyone.</p>
+        </div>
+        
+        <div>
+          <h4 class="font-bold mb-4">Product</h4>
+          <ul class="space-y-2 text-gray-400">
+            <li><a href="#features" class="hover:text-white">Features</a></li>
+            <li><a href="#pricing" class="hover:text-white">Pricing</a></li>
+            <li><a href="#" class="hover:text-white">API Documentation</a></li>
+            <li><a href="#" class="hover:text-white">Status Page</a></li>
+          </ul>
+        </div>
+        
+        <div>
+          <h4 class="font-bold mb-4">Company</h4>
+          <ul class="space-y-2 text-gray-400">
+            <li><a href="#" class="hover:text-white">About Us</a></li>
+            <li><a href="#" class="hover:text-white">Blog</a></li>
+            <li><a href="#" class="hover:text-white">Careers</a></li>
+            <li><a href="#" class="hover:text-white">Contact</a></li>
+          </ul>
+        </div>
+        
+        <div>
+          <h4 class="font-bold mb-4">Resources</h4>
+          <ul class="space-y-2 text-gray-400">
+            <li><a href="#" class="hover:text-white">Documentation</a></li>
+            <li><a href="#" class="hover:text-white">Help Center</a></li>
+            <li><a href="#" class="hover:text-white">Community</a></li>
+            <li><a href="#" class="hover:text-white">System Status</a></li>
+          </ul>
+        </div>
+      </div>
+      
+      <div class="flex flex-col md:flex-row justify-between items-center pt-8 border-t border-gray-800 text-gray-500 text-sm">
+        <div class="mb-4 md:mb-0">
+          © 2024 Dashmon • dashmon.online • All rights reserved
+        </div>
+        <div class="flex items-center gap-6">
+          <a href="#" class="hover:text-white"><i class="fab fa-twitter"></i></a>
+          <a href="#" class="hover:text-white"><i class="fab fa-github"></i></a>
+          <a href="#" class="hover:text-white"><i class="fab fa-linkedin"></i></a>
+          <a href="#" class="hover:text-white"><i class="fab fa-discord"></i></a>
+        </div>
+      </div>
     </footer>
   </div>
+
+  <script>
+    // Initialize mini chart
+    document.addEventListener('DOMContentLoaded', function() {
+      const ctx = document.getElementById('miniChart').getContext('2d');
+      const miniChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: ['12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00'],
+          datasets: [{
+            label: 'Response Time (ms)',
+            data: [45, 52, 48, 55, 49, 47, 44],
+            borderColor: 'rgb(59, 130, 246)',
+            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+            borderWidth: 2,
+            fill: true,
+            tension: 0.4
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false }
+          },
+          scales: {
+            x: {
+              grid: { color: 'rgba(255, 255, 255, 0.1)' },
+              ticks: { color: '#9CA3AF' }
+            },
+            y: {
+              grid: { color: 'rgba(255, 255, 255, 0.1)' },
+              ticks: { color: '#9CA3AF' }
+            }
+          }
+        }
+      });
+
+      // Animate numbers on scroll
+      const observerOptions = {
+        threshold: 0.2
+      };
+
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('animate__animated', 'animate__fadeInUp');
+          }
+        });
+      }, observerOptions);
+
+      // Observe elements for animation
+      document.querySelectorAll('.glass-card').forEach((card, index) => {
+        observer.observe(card);
+      });
+
+      // Smooth scroll for anchor links
+      document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+        anchor.addEventListener('click', function (e) {
+          e.preventDefault();
+          const targetId = this.getAttribute('href');
+          if (targetId === '#') return;
+          
+          const targetElement = document.querySelector(targetId);
+          if (targetElement) {
+            window.scrollTo({
+              top: targetElement.offsetTop - 80,
+              behavior: 'smooth'
+            });
+          }
+        });
+      });
+
+      // Update live counter
+      let serverCount = 12;
+      setInterval(() => {
+        const statusEl = document.querySelector('.dashboard-preview .text-2xl.font-bold');
+        if (statusEl && Math.random() > 0.7) {
+          const change = Math.random() > 0.5 ? 1 : -1;
+          serverCount = Math.max(10, Math.min(14, serverCount + change));
+          statusEl.textContent = serverCount + '/4';
+        }
+      }, 5000);
+    });
+  </script>
 </body>
 </html>

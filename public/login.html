@@ -3,82 +3,425 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - Dashmon</title>
-    <!-- Keep your existing styles -->
+    <title>Login - Dashmon Monitoring</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css">
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
         :root {
-            --primary-blue: #2563eb;
-            --primary-dark: #1e40af;
-            --dark-bg: #0f172a;
-            --card-bg: #1e293b;
+            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --secondary-gradient: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+        }
+        
+        * {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
         }
         
         body {
-            font-family: 'Inter', system-ui, -apple-system, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
             min-height: 100vh;
+            position: relative;
+            overflow-x: hidden;
+        }
+        
+        .login-container {
+            position: relative;
+            z-index: 2;
         }
         
         .glass-card {
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(20px);
             border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
         }
         
-        .dark-theme .glass-card {
-            background: rgba(30, 41, 59, 0.7);
+        .gradient-text {
+            background: var(--primary-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .floating {
+            animation: floating 6s ease-in-out infinite;
+        }
+        
+        @keyframes floating {
+            0% { transform: translateY(0px); }
+            50% { transform: translateY(-20px); }
+            100% { transform: translateY(0px); }
+        }
+        
+        .pulse-animation {
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
+            70% { box-shadow: 0 0 0 15px rgba(59, 130, 246, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+        }
+        
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+        
+        .online { background-color: #10b981; box-shadow: 0 0 10px #10b981; }
+        .offline { background-color: #ef4444; box-shadow: 0 0 10px #ef4444; }
+        
+        .monitor-icon {
+            width: 60px;
+            height: 60px;
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(147, 51, 234, 0.2) 100%);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+        }
+        
+        .input-field {
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s ease;
+        }
+        
+        .input-field:focus {
+            border-color: rgba(99, 102, 241, 0.5);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+        }
+        
+        .login-btn {
+            background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .login-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(79, 70, 229, 0.3);
+        }
+        
+        .login-btn::after {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: linear-gradient(45deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+            transform: rotate(45deg);
+            transition: all 0.5s ease;
+            opacity: 0;
+        }
+        
+        .login-btn:hover::after {
+            opacity: 1;
+            transform: rotate(45deg) translate(50%, 50%);
+        }
+        
+        /* Animated background */
+        .bg-animated {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            overflow: hidden;
+            z-index: 1;
+        }
+        
+        .bg-circle {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(60px);
+            opacity: 0.15;
+        }
+        
+        .circle-1 {
+            width: 400px;
+            height: 400px;
+            background: #4f46e5;
+            top: -200px;
+            right: -100px;
+            animation: move1 20s infinite alternate ease-in-out;
+        }
+        
+        .circle-2 {
+            width: 300px;
+            height: 300px;
+            background: #7c3aed;
+            bottom: -150px;
+            left: -100px;
+            animation: move2 25s infinite alternate ease-in-out;
+        }
+        
+        .circle-3 {
+            width: 250px;
+            height: 250px;
+            background: #3b82f6;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            animation: move3 30s infinite linear;
+        }
+        
+        @keyframes move1 {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(-50px, 50px); }
+        }
+        
+        @keyframes move2 {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(50px, -50px); }
+        }
+        
+        @keyframes move3 {
+            0% { transform: translate(-50%, -50%) rotate(0deg); }
+            100% { transform: translate(-50%, -50%) rotate(360deg); }
         }
     </style>
 </head>
-<body class="dark-theme">
-    <div class="min-h-screen flex items-center justify-center p-4">
-        <div class="glass-card p-8 rounded-xl max-w-md w-full text-center">
-            <h1 class="text-3xl font-bold mb-2 flex items-center justify-center">
-                <i class="fas fa-server mr-3 text-blue-400"></i>
-                Dashmon
-            </h1>
-            <p class="text-gray-400 mb-6">Infrastructure Monitoring Dashboard</p>
-            
-            <div class="mb-6">
-                <a href="/auth/google" class="bg-white text-gray-800 hover:bg-gray-100 px-6 py-3 rounded-lg font-medium inline-flex items-center transition-all duration-300 transform hover:scale-105">
-                    <i class="fab fa-google mr-3 text-red-500"></i>
-                    Sign in with Google
-                </a>
+<body>
+    <!-- Animated Background -->
+    <div class="bg-animated">
+        <div class="bg-circle circle-1"></div>
+        <div class="bg-circle circle-2"></div>
+        <div class="bg-circle circle-3"></div>
+    </div>
+
+    <div class="min-h-screen flex items-center justify-center p-4 login-container">
+        <div class="glass-card p-8 rounded-2xl max-w-md w-full animate__animated animate__fadeIn">
+            <!-- Logo and Title -->
+            <div class="text-center mb-8">
+                <div class="monitor-icon floating">
+                    <i class="fas fa-chart-network text-blue-400 text-2xl"></i>
+                </div>
+                <h1 class="text-3xl font-bold mb-2 flex items-center justify-center">
+                    <span class="gradient-text">Dashmon</span>
+                </h1>
+                <p class="text-gray-400 mb-6">Enterprise Infrastructure Monitoring</p>
+                
+                <!-- Live Status Indicator -->
+                <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gray-800/50 text-sm mb-6">
+                    <span class="status-dot online"></span>
+                    <span>All systems operational</span>
+                    <span class="text-blue-400">• Live</span>
+                </div>
             </div>
             
+            <!-- Login Form -->
             <div class="mb-8">
-                <div class="grid grid-cols-2 gap-4 text-sm">
-                    <div class="bg-blue-900/30 p-3 rounded-lg">
-                        <i class="fas fa-clock text-blue-400 mb-2"></i>
-                        <p class="font-semibold">Free Plan</p>
-                        <p class="text-gray-400">2-hour checks</p>
+                <h2 class="text-xl font-semibold mb-6 text-center">Sign in to your account</h2>
+                
+                <div class="space-y-4">
+                    <!-- Google OAuth Button -->
+                    <a href="/auth/google" class="login-btn text-white px-6 py-3 rounded-xl font-medium flex items-center justify-center gap-3 mb-4">
+                        <i class="fab fa-google text-white"></i>
+                        Continue with Google
+                    </a>
+                    
+                    <!-- Divider -->
+                    <div class="relative text-center my-6">
+                        <div class="absolute inset-0 flex items-center">
+                            <div class="w-full border-t border-gray-700"></div>
+                        </div>
+                        <div class="relative inline-flex items-center justify-center px-4">
+                            <span class="text-sm text-gray-500 bg-gray-900 px-2">or continue with</span>
+                        </div>
                     </div>
-                    <div class="bg-purple-900/30 p-3 rounded-lg">
-                        <i class="fas fa-bolt text-purple-400 mb-2"></i>
-                        <p class="font-semibold">Premium Plan</p>
-                        <p class="text-gray-400">15-minute checks</p>
+                    
+                    <!-- Email Field -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">Email address</label>
+                        <input type="email" class="w-full px-4 py-3 rounded-xl input-field text-white focus:outline-none" placeholder="you@company.com">
+                    </div>
+                    
+                    <!-- Password Field -->
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <label class="block text-sm font-medium text-gray-300">Password</label>
+                            <a href="#" class="text-sm text-blue-400 hover:text-blue-300">Forgot password?</a>
+                        </div>
+                        <input type="password" class="w-full px-4 py-3 rounded-xl input-field text-white focus:outline-none" placeholder="••••••••">
+                    </div>
+                    
+                    <!-- Remember Me -->
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" id="remember" class="rounded border-gray-600 bg-gray-800">
+                        <label for="remember" class="text-sm text-gray-300">Remember this device</label>
+                    </div>
+                    
+                    <!-- Sign In Button -->
+                    <button class="w-full py-3 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 font-semibold transition-all duration-300 hover:scale-[1.02]">
+                        Sign in with Email
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Features -->
+            <div class="mb-8">
+                <h3 class="text-lg font-semibold mb-4 text-center">What you get with Dashmon</h3>
+                <div class="grid grid-cols-2 gap-3 text-sm">
+                    <div class="p-3 rounded-lg bg-gray-800/30 border border-gray-700">
+                        <i class="fas fa-bolt text-blue-400 mb-1"></i>
+                        <p class="font-medium">Real-time monitoring</p>
+                    </div>
+                    <div class="p-3 rounded-lg bg-gray-800/30 border border-gray-700">
+                        <i class="fas fa-bell text-purple-400 mb-1"></i>
+                        <p class="font-medium">Smart alerts</p>
+                    </div>
+                    <div class="p-3 rounded-lg bg-gray-800/30 border border-gray-700">
+                        <i class="fas fa-shield-alt text-green-400 mb-1"></i>
+                        <p class="font-medium">Enterprise security</p>
+                    </div>
+                    <div class="p-3 rounded-lg bg-gray-800/30 border border-gray-700">
+                        <i class="fas fa-chart-line text-yellow-400 mb-1"></i>
+                        <p class="font-medium">Advanced analytics</p>
                     </div>
                 </div>
             </div>
             
-            <div class="text-sm text-gray-500 space-y-2">
-                <p><i class="fas fa-shield-alt mr-2"></i> Secure Google authentication</p>
-                <p><i class="fas fa-database mr-2"></i> Your data is private</p>
-                <p><i class="fas fa-bell mr-2"></i> Email alerts included</p>
+            <!-- Plans -->
+            <div class="mb-8">
+                <h3 class="text-lg font-semibold mb-4 text-center">Choose your plan</h3>
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="p-4 rounded-xl bg-gradient-to-br from-gray-900 to-gray-950 border border-gray-800 text-center">
+                        <div class="text-xs text-gray-400 mb-1">FREE PLAN</div>
+                        <div class="text-xl font-bold">2-hour checks</div>
+                        <div class="text-xs text-gray-500 mt-1">10 endpoints</div>
+                    </div>
+                    <div class="p-4 rounded-xl bg-gradient-to-br from-blue-900/30 to-blue-950/30 border border-blue-800 text-center">
+                        <div class="text-xs text-blue-400 mb-1">PREMIUM</div>
+                        <div class="text-xl font-bold">15-min checks</div>
+                        <div class="text-xs text-blue-500 mt-1">100 endpoints</div>
+                    </div>
+                </div>
             </div>
             
-            <div class="mt-8 pt-6 border-t border-gray-700">
-                <a href="/" class="text-blue-400 hover:text-blue-300 inline-flex items-center">
-                    <i class="fas fa-arrow-left mr-2"></i> Back to Home
-                </a>
+            <!-- Stats -->
+            <div class="p-4 rounded-xl bg-black/20 border border-gray-800 mb-6">
+                <div class="flex items-center justify-between text-sm">
+                    <div>
+                        <div class="text-gray-400">Active users</div>
+                        <div class="text-xl font-bold">2,500+</div>
+                    </div>
+                    <div>
+                        <div class="text-gray-400">Uptime</div>
+                        <div class="text-xl font-bold text-green-400">99.9%</div>
+                    </div>
+                    <div>
+                        <div class="text-gray-400">Response time</div>
+                        <div class="text-xl font-bold">&lt;50ms</div>
+                    </div>
+                </div>
             </div>
             
-            <div class="mt-4 text-xs text-gray-600">
-                Need help? Contact support@dashmon.online
+            <!-- Bottom Links -->
+            <div class="text-center space-y-4">
+                <p class="text-sm text-gray-500">
+                    By continuing, you agree to our 
+                    <a href="#" class="text-blue-400 hover:text-blue-300">Terms</a> and 
+                    <a href="#" class="text-blue-400 hover:text-blue-300">Privacy Policy</a>
+                </p>
+                
+                <div class="pt-4 border-t border-gray-800">
+                    <a href="/" class="text-blue-400 hover:text-blue-300 inline-flex items-center gap-2">
+                        <i class="fas fa-arrow-left"></i>
+                        Back to Home
+                    </a>
+                </div>
+                
+                <div class="text-xs text-gray-600">
+                    <i class="fas fa-life-ring mr-1"></i>
+                    Need help? <a href="mailto:support@dashmon.online" class="text-blue-400">support@dashmon.online</a>
+                </div>
             </div>
         </div>
     </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Add floating animation to cards
+            const cards = document.querySelectorAll('.bg-gray-800\\/30');
+            cards.forEach((card, index) => {
+                card.style.animationDelay = `${index * 0.1}s`;
+                card.classList.add('animate__animated', 'animate__fadeInUp');
+            });
+            
+            // Update status indicator
+            const statusDot = document.querySelector('.status-dot');
+            const statusText = document.querySelector('.inline-flex.items-center.gap-2 span:nth-child(2)');
+            
+            // Simulate status changes (for demo purposes)
+            setInterval(() => {
+                if (Math.random() > 0.95) { // 5% chance to change status
+                    if (statusDot.classList.contains('online')) {
+                        statusDot.classList.remove('online');
+                        statusDot.classList.add('offline');
+                        statusText.textContent = 'Minor issues detected';
+                        statusText.nextElementSibling.textContent = '• Investigating';
+                        statusText.nextElementSibling.classList.remove('text-blue-400');
+                        statusText.nextElementSibling.classList.add('text-yellow-400');
+                    } else {
+                        statusDot.classList.remove('offline');
+                        statusDot.classList.add('online');
+                        statusText.textContent = 'All systems operational';
+                        statusText.nextElementSibling.textContent = '• Live';
+                        statusText.nextElementSibling.classList.remove('text-yellow-400');
+                        statusText.nextElementSibling.classList.add('text-blue-400');
+                    }
+                }
+            }, 5000);
+            
+            // Add hover effect to login button
+            const loginBtn = document.querySelector('.login-btn');
+            loginBtn.addEventListener('mouseenter', () => {
+                loginBtn.style.transform = 'translateY(-2px)';
+            });
+            
+            loginBtn.addEventListener('mouseleave', () => {
+                loginBtn.style.transform = 'translateY(0)';
+            });
+            
+            // Form validation (basic)
+            const emailInput = document.querySelector('input[type="email"]');
+            const passwordInput = document.querySelector('input[type="password"]');
+            const signInBtn = document.querySelector('button.bg-gradient-to-r');
+            
+            signInBtn.addEventListener('click', () => {
+                if (!emailInput.value || !passwordInput.value) {
+                    signInBtn.textContent = 'Please fill all fields';
+                    signInBtn.classList.add('from-red-600', 'to-red-700');
+                    signInBtn.classList.remove('from-blue-600', 'to-blue-700');
+                    
+                    setTimeout(() => {
+                        signInBtn.textContent = 'Sign in with Email';
+                        signInBtn.classList.remove('from-red-600', 'to-red-700');
+                        signInBtn.classList.add('from-blue-600', 'to-blue-700');
+                    }, 2000);
+                } else {
+                    // Simulate login process
+                    signInBtn.textContent = 'Signing in...';
+                    signInBtn.disabled = true;
+                    
+                    setTimeout(() => {
+                        signInBtn.textContent = 'Sign in with Email';
+                        signInBtn.disabled = false;
+                        // In real implementation, this would submit the form
+                    }, 1500);
+                }
+            });
+        });
+    </script>
 </body>
 </html>
