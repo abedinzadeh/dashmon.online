@@ -657,6 +657,56 @@ router.put('/api/alerts/email', requireAuth, async (req, res) => {
   }
 });
 
+// Send a test email to verify SMTP settings without waiting for a real alert.
+router.post('/api/alerts/email/test', requireAuth, async (req, res) => {
+  try {
+    const host = process.env.SMTP_HOST;
+    const port = process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : 587;
+    const user = process.env.SMTP_USER;
+    const pass = process.env.SMTP_PASS;
+    const from = process.env.SMTP_FROM || user;
+    const secure = String(process.env.SMTP_SECURE || '').toLowerCase() === 'true' || port === 465;
+
+    if (!host || !user || !pass || !from) {
+      return res.status(400).json({
+        error: 'SMTP is not configured. Please set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and SMTP_FROM in .env'
+      });
+    }
+
+    // Optional: allow overriding recipients from the modal textbox.
+    const rawTo = typeof req.body?.to === 'string' ? req.body.to : '';
+    const parsed = rawTo
+      .split(',')
+      .map((x) => x.trim())
+      .filter(Boolean);
+
+    const to = parsed.length ? parsed : [req.user.email].filter(Boolean);
+    if (!to.length) {
+      return res.status(400).json({ error: 'No recipient address available.' });
+    }
+
+    const nodemailer = require('nodemailer');
+    const transporter = nodemailer.createTransport({
+      host,
+      port,
+      secure,
+      auth: { user, pass }
+    });
+
+    await transporter.sendMail({
+      from,
+      to: to.join(','),
+      subject: 'Dashmon SMTP test',
+      text: `This is a Dashmon SMTP test email.\n\nTime: ${new Date().toISOString()}\nUser: ${req.user.email}`
+    });
+
+    res.json({ message: `Test email sent to ${to.join(', ')}` });
+  } catch (e) {
+    console.error('Test email failed:', e);
+    res.status(500).json({ error: e?.message || 'Failed to send test email' });
+  }
+});
+
 // --- Metrics for dashboard charts ---
 router.get('/api/metrics/down-events', requireAuth, async (req, res) => {
   const hours = Math.min(Number(req.query.hours || 24) || 24, 168); // up to 7 days

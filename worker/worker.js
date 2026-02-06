@@ -171,6 +171,8 @@ async function maybeSendEmailAlert(device, prevStatus, newStatus) {
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
   const from = process.env.SMTP_FROM || user;
+  const smtpSecureEnv = String(process.env.SMTP_SECURE || '').toLowerCase();
+  const secure = smtpSecureEnv === 'true' || port === 465;
 
   if (!host || !user || !pass || !from) {
     console.log(`[ALERT] Email not sent (SMTP not configured). Device=${device.name} Status=${newStatus}`);
@@ -182,7 +184,7 @@ async function maybeSendEmailAlert(device, prevStatus, newStatus) {
   const transporter = nodemailer.createTransport({
     host,
     port,
-    secure: port === 465,
+    secure,
     auth: { user, pass }
   });
 
@@ -206,7 +208,7 @@ async function maybeSendEmailAlert(device, prevStatus, newStatus) {
     await updateAlertEvent(device.user_id, device.id, eventType);
     console.log(`[ALERT] Email sent to ${recipients.join(',')} for ${device.name} (${newStatus})`);
   } catch (e) {
-    console.error('[ALERT] Email send failed:', e.message);
+    console.error('[ALERT] Email send failed:', e);
   }
 }
 
