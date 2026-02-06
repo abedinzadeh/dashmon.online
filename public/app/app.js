@@ -28,6 +28,7 @@
   const chartLifecycle = typeof createChartLifecycle === 'function' ? createChartLifecycle() : null;
   const sparkRenderGuard = chartLifecycle?.createRenderGuard ? chartLifecycle.createRenderGuard() : null;
   let refreshTimer = null;
+  let pendingSparkTimeouts = [];
 
   function ensureLineChart(canvasId, label, points, existing) {
     const el = $(canvasId);
@@ -139,6 +140,10 @@
       }
     };
 
+    const existing = state.charts.sparks.get(deviceId);
+    if (existing && typeof existing.destroy === 'function') {
+      existing.destroy();
+    }
     const chart = new Chart(el.getContext('2d'), cfg);
     state.charts.sparks.set(deviceId, chart);
   }
@@ -246,6 +251,10 @@
     if (!m) return;
     m.classList.remove('active');
     m.style.display = 'none';
+    if (id === 'deviceDetailsModal' && state.charts.deviceModal) {
+      state.charts.deviceModal.destroy();
+      state.charts.deviceModal = null;
+    }
     scrollLock?.unlock();
   }
 function statusClass(status) {
@@ -432,6 +441,8 @@ function statusClass(status) {
     if (tvLeft) tvLeft.innerHTML = '';
     if (tvRight) tvRight.innerHTML = '';
 
+    pendingSparkTimeouts.forEach((id) => clearTimeout(id));
+    pendingSparkTimeouts = [];
     if (chartLifecycle) chartLifecycle.resetChartMap(state.charts.sparks);
     const renderToken = sparkRenderGuard ? sparkRenderGuard.next() : 0;
 
@@ -531,6 +542,10 @@ function statusClass(status) {
 
       // Render sparklines for visible devices
       if (isExpanded) {
+        (p.devices || []).forEach(d => {
+          const t = setTimeout(() => renderSparkline(d.id, renderToken), 0);
+          pendingSparkTimeouts.push(t);
+        });
         (p.devices || []).forEach(d => { setTimeout(() => renderSparkline(d.id, renderToken), 0); });
       }
 
@@ -765,6 +780,13 @@ function statusClass(status) {
   document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('beforeunload', () => {
       if (refreshTimer) clearInterval(refreshTimer);
+      pendingSparkTimeouts.forEach((id) => clearTimeout(id));
+      pendingSparkTimeouts = [];
+      if (chartLifecycle) chartLifecycle.resetChartMap(state.charts.sparks);
+      if (state.charts.deviceModal) {
+        state.charts.deviceModal.destroy();
+        state.charts.deviceModal = null;
+      }
       if (chartLifecycle) chartLifecycle.resetChartMap(state.charts.sparks);
     }, { once: true });
 

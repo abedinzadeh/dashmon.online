@@ -148,6 +148,7 @@
   const chartLifecycle = typeof createChartLifecycle === 'function' ? createChartLifecycle() : null;
   const sparkRenderGuard = chartLifecycle?.createRenderGuard ? chartLifecycle.createRenderGuard() : null;
   let editPanelScrollY = null;
+  let pendingSparkTimeouts = [];
 
   async function apiFetch(url, opts={}){
     const o = Object.assign({credentials:'include'}, opts);
@@ -197,6 +198,8 @@
 
     const list = $('devicesList');
     list.innerHTML = '';
+    pendingSparkTimeouts.forEach((id) => clearTimeout(id));
+    pendingSparkTimeouts = [];
     if(chartLifecycle) chartLifecycle.resetChartMap(sparkCharts);
     const renderToken = sparkRenderGuard ? sparkRenderGuard.next() : 0;
     if(!devices.length){
@@ -220,6 +223,8 @@
       `;
       list.appendChild(div);
       div.addEventListener('click', ()=> openDeviceDetails(d));
+      const t = setTimeout(()=>renderSpark(d.id, renderToken),0);
+      pendingSparkTimeouts.push(t);
       setTimeout(()=>renderSpark(d.id, renderToken),0);
     });
   }
@@ -251,6 +256,8 @@
       data:{ labels: values.map(()=>''), datasets:[{ data: values, tension:0.3, pointRadius:0, borderWidth:2, fill:false }]},
       options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:{enabled:false}}, scales:{x:{display:false}, y:{display:false}}}
     };
+    const existing = sparkCharts.get(deviceId);
+    if(existing && typeof existing.destroy === 'function') { existing.destroy(); }
     sparkCharts.set(deviceId, new Chart(el.getContext('2d'), cfg));
   }
 
@@ -439,6 +446,8 @@
   document.addEventListener('DOMContentLoaded', async ()=>{
     window.addEventListener('beforeunload', ()=>{
       if(deviceChart){ deviceChart.destroy(); deviceChart = null; }
+      pendingSparkTimeouts.forEach((id) => clearTimeout(id));
+      pendingSparkTimeouts = [];
       if(chartLifecycle) chartLifecycle.resetChartMap(sparkCharts);
     }, { once: true });
 
