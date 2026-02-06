@@ -13,6 +13,29 @@ const pool = new Pool({
   password: process.env.POSTGRES_PASSWORD
 });
 
+// Ensure required tables exist (helps when the DB volume already existed before schema was introduced)
+async function ensureAlertEventsTable() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS public.alert_events (
+        id BIGSERIAL PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+        device_id UUID NOT NULL REFERENCES public.devices(id) ON DELETE CASCADE,
+        event_type TEXT NOT NULL,
+        last_sent TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (user_id, device_id, event_type)
+      );
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_alert_events_user_device
+      ON public.alert_events(user_id, device_id);
+    `);
+  } catch (e) {
+    console.error('ensureAlertEventsTable error:', e?.message || e);
+  }
+}
+
+
 function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
 
 function httpCheck(url) {
@@ -127,7 +150,7 @@ async function shouldSendEmail(userId) {
 
 async function updateAlertEvent(userId, deviceId, eventType) {
   await pool.query(
-    `INSERT INTO alert_events(user_id, device_id, event_type, last_sent)
+    `INSERT INTO public.alert_events(user_id, device_id, event_type, last_sent)
      VALUES ($1,$2,$3,now())
      ON CONFLICT (user_id, device_id, event_type)
      DO UPDATE SET last_sent = EXCLUDED.last_sent`,
@@ -137,7 +160,7 @@ async function updateAlertEvent(userId, deviceId, eventType) {
 
 async function getLastAlertSent(userId, deviceId, eventType) {
   const { rows } = await pool.query(
-    `SELECT last_sent FROM alert_events
+    `SELECT last_sent FROM public.alert_events
      WHERE user_id=$1 AND device_id=$2 AND event_type=$3
      ORDER BY last_sent DESC LIMIT 1`,
     [userId, deviceId, eventType]
@@ -171,8 +194,6 @@ async function maybeSendEmailAlert(device, prevStatus, newStatus) {
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
   const from = process.env.SMTP_FROM || user;
-  const smtpSecureEnv = String(process.env.SMTP_SECURE || '').toLowerCase();
-  const secure = smtpSecureEnv === 'true' || port === 465;
 
   if (!host || !user || !pass || !from) {
     console.log(`[ALERT] Email not sent (SMTP not configured). Device=${device.name} Status=${newStatus}`);
@@ -184,7 +205,7 @@ async function maybeSendEmailAlert(device, prevStatus, newStatus) {
   const transporter = nodemailer.createTransport({
     host,
     port,
-    secure,
+    secure: port === 465,
     auth: { user, pass }
   });
 
@@ -208,7 +229,7 @@ async function maybeSendEmailAlert(device, prevStatus, newStatus) {
     await updateAlertEvent(device.user_id, device.id, eventType);
     console.log(`[ALERT] Email sent to ${recipients.join(',')} for ${device.name} (${newStatus})`);
   } catch (e) {
-    console.error('[ALERT] Email send failed:', e);
+    console.error('[ALERT] Email send failed:', e.message);
   }
 }
 
@@ -237,6 +258,7 @@ async function tick() {
 
 async function main() {
   console.log('dashmon worker started');
+  await ensureAlertEventsTable();
   while (true) {
     try {
       await retentionCleanup();
