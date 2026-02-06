@@ -7,6 +7,8 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="./scroll-lock.js"></script>
+  <script src="./chart-lifecycle.js"></script>
 </head>
 <body class="bg-gray-900 text-white min-h-screen">
   <div class="max-w-6xl mx-auto px-4 py-6">
@@ -142,6 +144,10 @@
   const qs = new URLSearchParams(location.search);
   const projectId = qs.get('projectId');
   let devicesCache = [];
+  const scrollLock = typeof createScrollLock === 'function' ? createScrollLock(window, document) : null;
+  const chartLifecycle = typeof createChartLifecycle === 'function' ? createChartLifecycle() : null;
+  const sparkRenderGuard = chartLifecycle?.createRenderGuard ? chartLifecycle.createRenderGuard() : null;
+  let editPanelScrollY = null;
 
   async function apiFetch(url, opts={}){
     const o = Object.assign({credentials:'include'}, opts);
@@ -191,6 +197,8 @@
 
     const list = $('devicesList');
     list.innerHTML = '';
+    if(chartLifecycle) chartLifecycle.resetChartMap(sparkCharts);
+    const renderToken = sparkRenderGuard ? sparkRenderGuard.next() : 0;
     if(!devices.length){
       list.innerHTML = '<div class="text-gray-400">No devices yet.</div>';
       return;
@@ -212,7 +220,7 @@
       `;
       list.appendChild(div);
       div.addEventListener('click', ()=> openDeviceDetails(d));
-      setTimeout(()=>renderSpark(d.id),0);
+      setTimeout(()=>renderSpark(d.id, renderToken),0);
     });
   }
 
@@ -230,20 +238,19 @@
     return 'bg-gray-500';
   }
 
-  async function renderSpark(deviceId){
+  async function renderSpark(deviceId, renderToken){
     const el = document.getElementById(`pspark_${deviceId}`);
     if(!el || typeof Chart==='undefined') return;
+    if(sparkRenderGuard && !sparkRenderGuard.isCurrent(renderToken)) return;
     const r = await apiFetch(`/api/devices/${encodeURIComponent(deviceId)}/history?limit=20`);
     if(!r.ok) return;
     const hist = (await r.json()).history || [];
     const values = hist.map(x => x.latency_ms==null ? null : Number(x.latency_ms));
-    const existing = sparkCharts.get(deviceId);
     const cfg = {
       type:'line',
       data:{ labels: values.map(()=>''), datasets:[{ data: values, tension:0.3, pointRadius:0, borderWidth:2, fill:false }]},
       options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:{enabled:false}}, scales:{x:{display:false}, y:{display:false}}}
     };
-    if(existing){ existing.data.datasets[0].data = values; existing.update(); return; }
     sparkCharts.set(deviceId, new Chart(el.getContext('2d'), cfg));
   }
 
@@ -289,12 +296,15 @@
 
     const modal = document.getElementById('projectDeviceDetailsModal');
     modal.classList.remove('hidden'); modal.classList.add('flex');
+    scrollLock?.lock();
   }
 
   function closeDeviceDetails(){
+    hideEditPanel();
     const modal = document.getElementById('projectDeviceDetailsModal');
     modal.classList.add('hidden'); modal.classList.remove('flex');
-    document.getElementById('pdEditPanel').classList.add('hidden');
+    if(deviceChart){ deviceChart.destroy(); deviceChart = null; }
+    scrollLock?.unlock();
   }
 
   async function testNowFromModal(){
@@ -305,6 +315,7 @@
   }
 
   function showEditPanel(device){
+    editPanelScrollY = window.scrollY || window.pageYOffset || 0;
     document.getElementById('pdEditPanel').classList.remove('hidden');
     document.getElementById('pdEditName').value = device.name || '';
     document.getElementById('pdEditType').value = device.type || '';
@@ -313,6 +324,15 @@
     document.getElementById('pdEditUrl').value = device.url || '';
     document.getElementById('pdEditNotes').value = device.notes || '';
     document.getElementById('pdEditForm').dataset.deviceId = device.id;
+  }
+
+  function hideEditPanel(){
+    const panel = document.getElementById('pdEditPanel');
+    panel.classList.add('hidden');
+    if(editPanelScrollY != null){
+      window.scrollTo(0, editPanelScrollY);
+      editPanelScrollY = null;
+    }
   }
 
   async function saveEdit(e){
@@ -349,8 +369,8 @@
   }
 
 
-  function openEmailAlertsModal(){ $('projectEmailAlertsModal').classList.remove('hidden'); $('projectEmailAlertsModal').classList.add('flex'); }
-  function closeEmailAlertsModal(){ $('projectEmailAlertsModal').classList.add('hidden'); $('projectEmailAlertsModal').classList.remove('flex'); }
+  function openEmailAlertsModal(){ $('projectEmailAlertsModal').classList.remove('hidden'); $('projectEmailAlertsModal').classList.add('flex'); scrollLock?.lock(); }
+  function closeEmailAlertsModal(){ $('projectEmailAlertsModal').classList.add('hidden'); $('projectEmailAlertsModal').classList.remove('flex'); scrollLock?.unlock(); }
 
   async function loadEmailAlertConfig(){
     const r = await apiFetch('/api/alerts/email');
@@ -382,8 +402,8 @@
     alert('Email alert settings saved.');
   }
 
-  function openModal(){ $('deviceModal').classList.remove('hidden'); $('deviceModal').classList.add('flex'); }
-  function closeModal(){ $('deviceModal').classList.add('hidden'); $('deviceModal').classList.remove('flex'); }
+  function openModal(){ $('deviceModal').classList.remove('hidden'); $('deviceModal').classList.add('flex'); scrollLock?.lock(); }
+  function closeModal(){ $('deviceModal').classList.add('hidden'); $('deviceModal').classList.remove('flex'); scrollLock?.unlock(); }
 
   async function addDevice(e){
     e.preventDefault();
@@ -417,6 +437,11 @@
   }
 
   document.addEventListener('DOMContentLoaded', async ()=>{
+    window.addEventListener('beforeunload', ()=>{
+      if(deviceChart){ deviceChart.destroy(); deviceChart = null; }
+      if(chartLifecycle) chartLifecycle.resetChartMap(sparkCharts);
+    }, { once: true });
+
     if(!await checkAuth()) return;
     $('logoutBtn').addEventListener('click', logout);
     $('addDeviceBtn').addEventListener('click', openModal);
@@ -438,7 +463,7 @@
       const d = (devicesCache || []).find(x=> String(x.id)===String(deviceId));
       if(d) showEditPanel(d);
     });
-    document.getElementById('pdEditCancel').addEventListener('click', ()=> document.getElementById('pdEditPanel').classList.add('hidden'));
+    document.getElementById('pdEditCancel').addEventListener('click', hideEditPanel);
     document.getElementById('pdEditForm').addEventListener('submit', saveEdit);
 
     load();
