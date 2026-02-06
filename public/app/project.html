@@ -8,6 +8,7 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="./scroll-lock.js"></script>
+  <script src="./chart-lifecycle.js"></script>
 </head>
 <body class="bg-gray-900 text-white min-h-screen">
   <div class="max-w-6xl mx-auto px-4 py-6">
@@ -144,6 +145,8 @@
   const projectId = qs.get('projectId');
   let devicesCache = [];
   const scrollLock = typeof createScrollLock === 'function' ? createScrollLock(window, document) : null;
+  const chartLifecycle = typeof createChartLifecycle === 'function' ? createChartLifecycle() : null;
+  const sparkRenderGuard = chartLifecycle?.createRenderGuard ? chartLifecycle.createRenderGuard() : null;
   let editPanelScrollY = null;
 
   async function apiFetch(url, opts={}){
@@ -194,6 +197,8 @@
 
     const list = $('devicesList');
     list.innerHTML = '';
+    if(chartLifecycle) chartLifecycle.resetChartMap(sparkCharts);
+    const renderToken = sparkRenderGuard ? sparkRenderGuard.next() : 0;
     if(!devices.length){
       list.innerHTML = '<div class="text-gray-400">No devices yet.</div>';
       return;
@@ -215,7 +220,7 @@
       `;
       list.appendChild(div);
       div.addEventListener('click', ()=> openDeviceDetails(d));
-      setTimeout(()=>renderSpark(d.id),0);
+      setTimeout(()=>renderSpark(d.id, renderToken),0);
     });
   }
 
@@ -233,20 +238,19 @@
     return 'bg-gray-500';
   }
 
-  async function renderSpark(deviceId){
+  async function renderSpark(deviceId, renderToken){
     const el = document.getElementById(`pspark_${deviceId}`);
     if(!el || typeof Chart==='undefined') return;
+    if(sparkRenderGuard && !sparkRenderGuard.isCurrent(renderToken)) return;
     const r = await apiFetch(`/api/devices/${encodeURIComponent(deviceId)}/history?limit=20`);
     if(!r.ok) return;
     const hist = (await r.json()).history || [];
     const values = hist.map(x => x.latency_ms==null ? null : Number(x.latency_ms));
-    const existing = sparkCharts.get(deviceId);
     const cfg = {
       type:'line',
       data:{ labels: values.map(()=>''), datasets:[{ data: values, tension:0.3, pointRadius:0, borderWidth:2, fill:false }]},
       options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:{enabled:false}}, scales:{x:{display:false}, y:{display:false}}}
     };
-    if(existing){ existing.data.datasets[0].data = values; existing.update(); return; }
     sparkCharts.set(deviceId, new Chart(el.getContext('2d'), cfg));
   }
 
@@ -299,6 +303,7 @@
     hideEditPanel();
     const modal = document.getElementById('projectDeviceDetailsModal');
     modal.classList.add('hidden'); modal.classList.remove('flex');
+    if(deviceChart){ deviceChart.destroy(); deviceChart = null; }
     scrollLock?.unlock();
   }
 
@@ -432,6 +437,11 @@
   }
 
   document.addEventListener('DOMContentLoaded', async ()=>{
+    window.addEventListener('beforeunload', ()=>{
+      if(deviceChart){ deviceChart.destroy(); deviceChart = null; }
+      if(chartLifecycle) chartLifecycle.resetChartMap(sparkCharts);
+    }, { once: true });
+
     if(!await checkAuth()) return;
     $('logoutBtn').addEventListener('click', logout);
     $('addDeviceBtn').addEventListener('click', openModal);
