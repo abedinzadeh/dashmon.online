@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="./scroll-lock.js"></script>
 </head>
 <body class="bg-gray-900 text-white min-h-screen">
   <div class="max-w-6xl mx-auto px-4 py-6">
@@ -142,6 +143,8 @@
   const qs = new URLSearchParams(location.search);
   const projectId = qs.get('projectId');
   let devicesCache = [];
+  const scrollLock = typeof createScrollLock === 'function' ? createScrollLock(window, document) : null;
+  let editPanelScrollY = null;
 
   async function apiFetch(url, opts={}){
     const o = Object.assign({credentials:'include'}, opts);
@@ -289,12 +292,14 @@
 
     const modal = document.getElementById('projectDeviceDetailsModal');
     modal.classList.remove('hidden'); modal.classList.add('flex');
+    scrollLock?.lock();
   }
 
   function closeDeviceDetails(){
+    hideEditPanel();
     const modal = document.getElementById('projectDeviceDetailsModal');
     modal.classList.add('hidden'); modal.classList.remove('flex');
-    document.getElementById('pdEditPanel').classList.add('hidden');
+    scrollLock?.unlock();
   }
 
   async function testNowFromModal(){
@@ -305,6 +310,7 @@
   }
 
   function showEditPanel(device){
+    editPanelScrollY = window.scrollY || window.pageYOffset || 0;
     document.getElementById('pdEditPanel').classList.remove('hidden');
     document.getElementById('pdEditName').value = device.name || '';
     document.getElementById('pdEditType').value = device.type || '';
@@ -313,6 +319,15 @@
     document.getElementById('pdEditUrl').value = device.url || '';
     document.getElementById('pdEditNotes').value = device.notes || '';
     document.getElementById('pdEditForm').dataset.deviceId = device.id;
+  }
+
+  function hideEditPanel(){
+    const panel = document.getElementById('pdEditPanel');
+    panel.classList.add('hidden');
+    if(editPanelScrollY != null){
+      window.scrollTo(0, editPanelScrollY);
+      editPanelScrollY = null;
+    }
   }
 
   async function saveEdit(e){
@@ -349,8 +364,8 @@
   }
 
 
-  function openEmailAlertsModal(){ $('projectEmailAlertsModal').classList.remove('hidden'); $('projectEmailAlertsModal').classList.add('flex'); }
-  function closeEmailAlertsModal(){ $('projectEmailAlertsModal').classList.add('hidden'); $('projectEmailAlertsModal').classList.remove('flex'); }
+  function openEmailAlertsModal(){ $('projectEmailAlertsModal').classList.remove('hidden'); $('projectEmailAlertsModal').classList.add('flex'); scrollLock?.lock(); }
+  function closeEmailAlertsModal(){ $('projectEmailAlertsModal').classList.add('hidden'); $('projectEmailAlertsModal').classList.remove('flex'); scrollLock?.unlock(); }
 
   async function loadEmailAlertConfig(){
     const r = await apiFetch('/api/alerts/email');
@@ -382,8 +397,8 @@
     alert('Email alert settings saved.');
   }
 
-  function openModal(){ $('deviceModal').classList.remove('hidden'); $('deviceModal').classList.add('flex'); }
-  function closeModal(){ $('deviceModal').classList.add('hidden'); $('deviceModal').classList.remove('flex'); }
+  function openModal(){ $('deviceModal').classList.remove('hidden'); $('deviceModal').classList.add('flex'); scrollLock?.lock(); }
+  function closeModal(){ $('deviceModal').classList.add('hidden'); $('deviceModal').classList.remove('flex'); scrollLock?.unlock(); }
 
   async function addDevice(e){
     e.preventDefault();
@@ -438,7 +453,7 @@
       const d = (devicesCache || []).find(x=> String(x.id)===String(deviceId));
       if(d) showEditPanel(d);
     });
-    document.getElementById('pdEditCancel').addEventListener('click', ()=> document.getElementById('pdEditPanel').classList.add('hidden'));
+    document.getElementById('pdEditCancel').addEventListener('click', hideEditPanel);
     document.getElementById('pdEditForm').addEventListener('submit', saveEdit);
 
     load();

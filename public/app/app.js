@@ -231,12 +231,15 @@
     alert('Email alert settings saved.');
   }
 
+  const scrollLock = typeof createScrollLock === 'function' ? createScrollLock(window, document) : null;
+
   function openModal(id) {
     const m = $(id);
     if (!m) return;
     // Some pages use CSS display:none without an .active rule.
     m.classList.add('active');
     m.style.display = 'block';
+    scrollLock?.lock();
   }
 
   function closeModal(id) {
@@ -244,6 +247,7 @@
     if (!m) return;
     m.classList.remove('active');
     m.style.display = 'none';
+    scrollLock?.unlock();
   }
 function statusClass(status) {
     if (status === 'up') return 'status-up';
