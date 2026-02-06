@@ -640,60 +640,53 @@
 </div>
 </div>
 <!-- Device Details Modal -->
-<div class="modal-overlay" id="deviceDetailsModal">
-<div class="modal-content" style="max-width: 600px;">
-<div class="flex justify-between items-center mb-6">
-<h2 class="text-2xl font-bold" id="deviceDetailsName"></h2>
-<button class="text-gray-500 hover:text-gray-700 text-2xl" id="closeDeviceDetails">×</button>
-</div>
-<div class="space-y-4">
-<div class="grid grid-cols-2 gap-4">
-<div>
-<label class="block text-sm font-medium text-gray-500">IP Address</label>
-<p class="font-semibold" id="deviceDetailsIp"></p>
-</div>
-<div>
-<label class="block text-sm font-medium text-gray-500">Type</label>
-<p class="font-semibold" id="deviceDetailsType"></p>
-</div>
-</div>
-<div class="grid grid-cols-2 gap-4">
-<div>
-<label class="block text-sm font-medium text-gray-500">Status</label>
-<p class="font-semibold">
-<span class="status-dot" id="deviceDetailsStatusDot"></span>
-<span id="deviceDetailsStatus"></span>
-</p>
-</div>
-<div>
-<label class="block text-sm font-medium text-gray-500">Packet Loss</label>
-<p class="font-semibold" id="deviceDetailsLoss"></p>
-</div>
-</div>
-<div>
-<label class="block text-sm font-medium text-gray-500">Last Check</label>
-<p class="font-semibold" id="deviceDetailsLastCheck"></p>
-</div>
-<div>
-<label class="block text-sm font-medium text-gray-500">Device URL</label>
-<p class="font-semibold break-all" id="deviceDetailsUrl"></p>
-</div>
-<div class="mt-6">
-<h3 class="text-lg font-semibold mb-3">Recent History</h3>
-<div class="bg-gray-100 dark:bg-gray-800 rounded-lg p-4">
-<div id="deviceHistoryChart" style="height: 200px;"></div>
-</div>
-</div>
-<div class="mt-6 flex justify-end space-x-4">
-<button class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700" id="openDeviceUrl">
-<i class="fas fa-external-link-alt mr-2"></i> Open Device
-                    </button>
-<button class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700" id="testDeviceNow">
-<i class="fas fa-bolt mr-2"></i> Test Now
-                    </button>
-</div>
-<div class="mt-4 p-3 rounded-lg bg-black/20 border border-white/10"><h3 class="text-sm font-semibold text-gray-300 mb-2">Latency (recent)</h3><canvas height="120" id="deviceDetailsChart"></canvas></div><div class="mt-3 text-xs text-gray-300 max-h-40 overflow-auto border border-white/10 rounded-lg p-2 bg-black/10" id="deviceDetailsHistory"></div></div>
-</div>
+<div id="deviceDetailsModal" class="modal-overlay hidden">
+  <div class="modal-content max-w-3xl w-full overflow-hidden">
+    <div class="flex items-center justify-between p-6 border-b border-gray-700">
+      <div>
+        <h2 id="deviceDetailsName" class="text-xl font-bold"></h2>
+        <div class="text-sm text-gray-400">
+          <span id="deviceDetailsStatus" class="font-semibold"></span>
+          <span class="mx-2">•</span>
+          <span>Last check: <span id="deviceDetailsLastCheck"></span></span>
+        </div>
+      </div>
+      <button id="closeDeviceDetails" class="text-2xl text-gray-400 hover:text-white" aria-label="Close">&times;</button>
+    </div>
+
+    <div class="p-6 space-y-5 overflow-y-auto" style="max-height: 80vh;">
+      <div>
+        <div class="text-sm text-gray-400 mb-1">Device URL</div>
+        <a id="deviceDetailsUrl" href="#" target="_blank" class="text-blue-400 hover:underline break-all"></a>
+      </div>
+
+      <div class="flex flex-wrap gap-3">
+        <button id="openDeviceBtn" class="btn btn-primary flex items-center gap-2">
+          <i class="fas fa-external-link-alt"></i> Open Device
+        </button>
+        <button id="testDeviceBtn" class="btn btn-success flex items-center gap-2">
+          <i class="fas fa-bolt"></i> Test Now
+        </button>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <div class="bg-gray-900/30 border border-gray-700 rounded-lg p-4">
+          <div class="flex items-center justify-between mb-2">
+            <div class="font-semibold">Latency (recent)</div>
+            <div class="text-xs text-gray-400">ms</div>
+          </div>
+          <div class="h-40">
+            <canvas id="deviceDetailsChart"></canvas>
+          </div>
+        </div>
+
+        <div class="bg-gray-900/30 border border-gray-700 rounded-lg p-4">
+          <div class="font-semibold mb-2">Recent History</div>
+          <div id="deviceDetailsHistory" class="text-sm text-gray-300 max-h-44 overflow-auto pr-2"></div>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 <!-- Edit Device Modal -->
 <div class="modal-overlay" id="editDeviceModal">

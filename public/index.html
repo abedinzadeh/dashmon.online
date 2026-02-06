@@ -4,6 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Dashmon - Real-time Infrastructure Monitoring</title>
+  
+  <!-- ADD THIS LINE for favicon -->
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css">
   <script src="https://cdn.tailwindcss.com"></script>
@@ -118,11 +122,17 @@
   </div>
 
   <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative z-10">
-    <!-- Header -->
+    <!-- Header - REPLACE THE ICON HERE -->
     <header class="flex flex-col sm:flex-row items-center justify-between mb-16 animate__animated animate__fadeIn">
       <div class="flex items-center gap-3 mb-6 sm:mb-0">
+        <!-- REPLACED THIS: Original icon with custom SVG -->
         <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center pulse-animation">
-          <i class="fas fa-chart-network text-white text-xl"></i>
+          <!-- Simple circle icon -->
+          <svg width="24" height="24" viewBox="0 0 512 512">
+            <circle cx="256" cy="256" r="120" fill="#4f46e5"/>
+            <circle cx="256" cy="256" r="60" fill="white"/>
+            <circle cx="256" cy="256" r="30" fill="#4f46e5"/>
+          </svg>
         </div>
         <div>
           <div class="text-2xl font-bold flex items-center">
@@ -148,7 +158,11 @@
     <main class="mt-8 grid lg:grid-cols-2 gap-12 items-center mb-20">
       <div class="animate__animated animate__fadeInLeft">
         <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 text-blue-400 text-sm mb-6">
-          <i class="fas fa-bolt"></i>
+          <!-- ADDED SIMPLE ICON HERE TOO -->
+          <svg width="14" height="14" viewBox="0 0 512 512" style="display: inline-block;">
+            <circle cx="256" cy="256" r="120" fill="#4f46e5"/>
+            <circle cx="256" cy="256" r="60" fill="white"/>
+          </svg>
           <span>Trusted by 2,500+ teams worldwide</span>
         </div>
         
@@ -166,7 +180,11 @@
 
         <div class="flex flex-wrap gap-4 mb-10">
           <a href="/auth/google" class="px-6 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 font-semibold text-lg flex items-center gap-3 shadow-xl shadow-blue-500/25 transition-all hover:scale-105">
-            <i class="fas fa-rocket"></i>
+            <!-- ADDED SIMPLE ICON HERE -->
+            <svg width="18" height="18" viewBox="0 0 512 512" style="margin-right: 8px;">
+              <circle cx="256" cy="256" r="120" fill="white"/>
+              <circle cx="256" cy="256" r="60" fill="#4f46e5"/>
+            </svg>
             Start Monitoring - Free Forever
           </a>
           <a href="#demo" class="px-6 py-3 rounded-xl bg-gray-800/50 hover:bg-gray-700/50 font-semibold text-lg flex items-center gap-3 border border-gray-700 backdrop-blur-sm">
@@ -220,7 +238,11 @@
                 <div class="text-2xl font-bold">4/4</div>
               </div>
               <div class="text-green-500">
-                <i class="fas fa-server"></i>
+                <!-- SIMPLE ICON FOR SERVER STATUS -->
+                <svg width="20" height="20" viewBox="0 0 512 512">
+                  <circle cx="256" cy="256" r="120" fill="#10b981"/>
+                  <circle cx="256" cy="256" r="60" fill="white"/>
+                </svg>
               </div>
             </div>
           </div>
@@ -231,7 +253,11 @@
                 <div class="text-2xl font-bold">100%</div>
               </div>
               <div class="text-blue-500">
-                <i class="fas fa-database"></i>
+                <!-- SIMPLE ICON FOR DATABASE -->
+                <svg width="20" height="20" viewBox="0 0 512 512">
+                  <circle cx="256" cy="256" r="120" fill="#3b82f6"/>
+                  <circle cx="256" cy="256" r="60" fill="white"/>
+                </svg>
               </div>
             </div>
           </div>
@@ -260,7 +286,12 @@
       <div class="grid md:grid-cols-3 gap-8">
         <div class="glass-card p-8 rounded-2xl hover:border-blue-500/30">
           <div class="feature-icon">
-            <i class="fas fa-bolt text-blue-500 text-xl"></i>
+            <!-- SIMPLE ICON FOR FEATURES -->
+            <svg width="24" height="24" viewBox="0 0 512 512">
+              <circle cx="256" cy="256" r="120" fill="#4f46e5"/>
+              <circle cx="256" cy="256" r="60" fill="white"/>
+              <circle cx="256" cy="256" r="30" fill="#4f46e5"/>
+            </svg>
           </div>
           <h3 class="text-xl font-bold mb-3">Real-time Alerts</h3>
           <p class="text-gray-400 mb-4">Get instant notifications via email, Slack, or webhook when issues arise</p>
@@ -311,7 +342,11 @@
         <div class="glass-card p-8 rounded-2xl border border-gray-800">
           <div class="text-center mb-8">
             <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gray-800 text-gray-300 text-sm mb-4">
-              <i class="fas fa-user"></i>
+              <!-- SIMPLE ICON FOR PLAN -->
+              <svg width="12" height="12" viewBox="0 0 512 512" style="margin-right: 4px;">
+                <circle cx="256" cy="256" r="120" fill="#4f46e5"/>
+                <circle cx="256" cy="256" r="60" fill="white"/>
+              </svg>
               Perfect for starters
             </div>
             <h3 class="text-2xl font-bold mb-2">Free</h3>
@@ -401,7 +436,11 @@
           
           <div class="flex flex-col sm:flex-row gap-4 justify-center">
             <a href="/auth/google" class="px-8 py-4 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 font-semibold text-lg flex items-center justify-center gap-3 shadow-xl shadow-blue-500/25">
-              <i class="fas fa-rocket"></i>
+              <!-- SIMPLE ICON FOR CTA -->
+              <svg width="20" height="20" viewBox="0 0 512 512">
+                <circle cx="256" cy="256" r="120" fill="white"/>
+                <circle cx="256" cy="256" r="60" fill="#4f46e5"/>
+              </svg>
               Start Free Trial
             </a>
             <a href="/app/" class="px-8 py-4 rounded-xl bg-gray-800/50 hover:bg-gray-700/50 font-semibold text-lg flex items-center justify-center gap-3 border border-gray-700">
@@ -422,8 +461,13 @@
       <div class="grid md:grid-cols-4 gap-8 mb-8">
         <div>
           <div class="flex items-center gap-3 mb-4">
+            <!-- SIMPLE ICON FOR FOOTER -->
             <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-              <i class="fas fa-chart-network text-white"></i>
+              <svg width="20" height="20" viewBox="0 0 512 512">
+                <circle cx="256" cy="256" r="120" fill="white"/>
+                <circle cx="256" cy="256" r="60" fill="#4f46e5"/>
+                <circle cx="256" cy="256" r="30" fill="white"/>
+              </svg>
             </div>
             <div class="text-xl font-bold">Dashmon</div>
           </div>

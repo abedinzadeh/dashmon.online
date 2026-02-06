@@ -193,7 +193,7 @@ function ensureLineChart(canvasId, label, points, existing) {
     const data = await res.json();
     const hist = data.history || [];
     const labels = hist.map(h => '');
-    const values = hist.map(h => (h.latency_ms == null ? null : Number(h.latency_ms)));
+    const values = hist.map(h => ((h.status && String(h.status).toLowerCase() !== 'up') ? null : (h.latency_ms == null ? null : Number(h.latency_ms))));
 
     const cfg = {
       type: 'line',
