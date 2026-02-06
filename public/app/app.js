@@ -546,7 +546,6 @@ function statusClass(status) {
           const t = setTimeout(() => renderSparkline(d.id, renderToken), 0);
           pendingSparkTimeouts.push(t);
         });
-        (p.devices || []).forEach(d => { setTimeout(() => renderSparkline(d.id, renderToken), 0); });
       }
 
       // TV mode simple split
