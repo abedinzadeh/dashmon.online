@@ -18,6 +18,16 @@
   };
 
 
+  function renderMaintenanceBadge(active, start, end) {
+    if (!active) return '';
+    const s = start ? new Date(start).toLocaleString() : '';
+    const e = end ? new Date(end).toLocaleString() : '';
+    const range = s ? (e ? `${s} → ${e}` : `${s} → until cleared`) : '';
+    return `<span class="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-yellow-500/20 text-yellow-200 border border-yellow-400/30" title="${escapeHtml(range)}">Maintenance</span>`;
+  }
+
+
+
 function fmtDateTime(value) {
   if (window.formatDateTime) return window.formatDateTime(value, { timeZone: state.timeZone || 'UTC' });
   // fallback
@@ -234,6 +244,102 @@ function ensureLineChart(canvasId, label, points, existing) {
     const res = await fetch(url, o);
     return res;
   }
+
+
+async function setStoreMaintenance(storeId, startTime, endTime) {
+    return apiFetch(`/api/maintenance/store/${encodeURIComponent(storeId)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ startTime, endTime })
+    });
+  }
+  async function clearStoreMaintenance(storeId) {
+    return apiFetch(`/api/maintenance/store/${encodeURIComponent(storeId)}`, { method: 'DELETE' });
+  }
+  async function setDeviceMaintenance(deviceId, startTime, endTime) {
+    return apiFetch(`/api/maintenance/device/${encodeURIComponent(deviceId)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ startTime, endTime })
+    });
+  }
+  async function clearDeviceMaintenance(deviceId) {
+    return apiFetch(`/api/maintenance/device/${encodeURIComponent(deviceId)}`, { method: 'DELETE' });
+  }
+
+  function canUseMaintenance() {
+    return state.user && state.user.plan === 'premium';
+  }
+
+  function maintenanceControlsHtml(storeId, store) {
+    const active = !!store.maintenanceActive;
+    const startVal = store.maintenance_start ? new Date(store.maintenance_start).toISOString().slice(0,16) : '';
+    const endVal = store.maintenance_end ? new Date(store.maintenance_end).toISOString().slice(0,16) : '';
+    const disabled = canUseMaintenance() ? '' : 'disabled';
+    const disCls = canUseMaintenance() ? '' : 'opacity-50 cursor-not-allowed';
+    return `
+      <div class="space-y-2">
+        <div class="flex flex-col gap-2 ${disCls}">
+          <label class="text-xs text-gray-400">Start</label>
+          <input id="maintStart" type="datetime-local" value="${startVal}" class="bg-gray-900/40 border border-gray-700 rounded-lg px-3 py-2 text-sm" ${disabled}/>
+        </div>
+        <div class="flex flex-col gap-2 ${disCls}">
+          <label class="text-xs text-gray-400">End (optional)</label>
+          <input id="maintEnd" type="datetime-local" value="${endVal}" class="bg-gray-900/40 border border-gray-700 rounded-lg px-3 py-2 text-sm" ${disabled}/>
+        </div>
+        <div class="flex gap-2 justify-end">
+          <button id="maintSave" class="px-4 py-2 rounded-xl bg-yellow-500/20 hover:bg-yellow-500/30 border border-yellow-400/30 text-yellow-100 text-sm font-semibold ${disCls}" ${disabled}>
+            ${active ? 'Update' : 'Schedule'}
+          </button>
+          <button id="maintClear" class="px-4 py-2 rounded-xl bg-gray-800/60 hover:bg-gray-700/60 border border-gray-700 text-gray-200 text-sm font-semibold ${disCls}" ${disabled}>
+            Clear
+          </button>
+        </div>
+        ${canUseMaintenance() ? '' : `<div class="text-xs text-amber-200/90">Maintenance is Premium. Upgrade to enable.</div>`}
+      </div>
+    `;
+  }
+
+  async function wireMaintenanceControls(storeId, store) {
+    const controls = document.getElementById('maintenanceControls');
+    const status = document.getElementById('maintenanceStatus');
+    if (!controls || !status) return;
+
+    status.innerHTML = store.maintenanceActive
+      ? `<div class="text-sm text-yellow-200">Maintenance active${store.maintenance_end ? ' until ' + new Date(store.maintenance_end).toLocaleString() : ''}.</div>`
+      : `<div class="text-sm text-gray-400">Not in maintenance.</div>`;
+
+    controls.innerHTML = maintenanceControlsHtml(storeId, store);
+
+    const saveBtn = document.getElementById('maintSave');
+    const clearBtn = document.getElementById('maintClear');
+    const startEl = document.getElementById('maintStart');
+    const endEl = document.getElementById('maintEnd');
+
+    if (saveBtn) {
+      saveBtn.addEventListener('click', async () => {
+        if (!canUseMaintenance()) return;
+        const startTime = startEl && startEl.value ? new Date(startEl.value).toISOString() : null;
+        const endTime = endEl && endEl.value ? new Date(endEl.value).toISOString() : null;
+        if (!startTime) return alert('Start time is required');
+        const r = await setStoreMaintenance(storeId, startTime, endTime);
+        const t = await r.json().catch(() => ({}));
+        if (!r.ok) return alert(t.error || 'Failed to set maintenance');
+        await loadProjectDetails(storeId);
+      });
+    }
+
+    if (clearBtn) {
+      clearBtn.addEventListener('click', async () => {
+        if (!canUseMaintenance()) return;
+        const r = await clearStoreMaintenance(storeId);
+        const t = await r.json().catch(() => ({}));
+        if (!r.ok) return alert(t.error || 'Failed to clear maintenance');
+        await loadProjectDetails(storeId);
+      });
+    }
+  }
+
 
   async function checkAuth() {
     const res = await apiFetch('/api/me', { redirect: 'manual' });
@@ -583,7 +689,7 @@ function bindTvSummaryCards() {
           <div class="flex items-center gap-3">
             <span class="status-dot ${headerStatusClass}"></span>
             <div>
-              <h3 class="font-bold text-lg leading-tight">${escapeHtml(p.name || p.id)}</h3>
+              <h3 class="font-bold text-lg leading-tight">${escapeHtml(p.name || p.id)}${renderMaintenanceBadge(p.maintenanceActive, p.maintenance_start, p.maintenance_end)}</h3>
               <div class="text-xs text-gray-400">Project ID: ${escapeHtml(p.id)}</div>
             </div>
           </div>

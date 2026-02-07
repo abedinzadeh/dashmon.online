@@ -4,6 +4,7 @@ const http = require('http');
 const https = require('https');
 const net = require('net');
 const { execFile } = require('child_process');
+const { isInMaintenance } = require('./maintenance');
 
 const pool = new Pool({
   host: process.env.PGHOST || 'postgres',
@@ -112,9 +113,12 @@ async function retentionCleanup() {
 
 async function getDueDevices() {
   const { rows } = await pool.query(
-    `SELECT d.*, u.plan, u.email AS user_email
+    `SELECT d.*, u.plan, u.email AS user_email,
+            s.maintenance_start AS store_maintenance_start,
+            s.maintenance_end AS store_maintenance_end
      FROM devices d
      JOIN users u ON u.id = d.user_id
+     JOIN stores s ON s.id = d.store_id AND s.user_id = d.user_id
      WHERE d.last_check IS NULL
         OR d.last_check <= now() - (d.ping_interval * interval '1 second')
      ORDER BY COALESCE(d.last_check, to_timestamp(0)) ASC
@@ -169,6 +173,9 @@ async function getLastAlertSent(userId, deviceId, eventType) {
 }
 
 async function maybeSendEmailAlert(device, prevStatus, newStatus) {
+  // Suppress alerts during maintenance windows (store or device)
+  if (isInMaintenance(device)) return;
+
   const cfg = await shouldSendEmail(device.user_id);
   if (!cfg) return;
 

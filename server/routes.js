@@ -10,6 +10,22 @@ const {
 } = require('./plan-limits');
 const { createMemoryRateLimiter } = require('./rate-limit');
 
+// Maintenance window helpers
+function parseMaybeTime(v) {
+  if (!v) return null;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+function isNowInMaintenanceWindow(now, start, end) {
+  if (!start) return false;
+  const s = new Date(start);
+  if (Number.isNaN(s.getTime())) return false;
+  if (!end) return now >= s;
+  const e = new Date(end);
+  if (Number.isNaN(e.getTime())) return now >= s;
+  return now >= s && now <= e;
+}
+
 const router = express.Router();
 router.use(express.json());
 
@@ -245,7 +261,13 @@ async function getProjectsWithDevices(userId) {
     const upDevices = list.filter((x) => x.status === 'up').length;
     const downDevices = list.filter((x) => x.status === 'down').length;
     const warningDevices = list.filter((x) => x.status === 'warning').length;
-    const maintenanceDevices = list.filter((x) => x.status === 'maintenance').length;
+    const now = new Date();
+    const storeMaintenanceActive = isNowInMaintenanceWindow(now, p.maintenance_start, p.maintenance_end);
+    const listWithMaint = list.map((d) => {
+      const deviceMaintenanceActive = storeMaintenanceActive || isNowInMaintenanceWindow(now, d.maintenance_start, d.maintenance_end);
+      return { ...d, maintenanceActive: deviceMaintenanceActive };
+    });
+    const maintenanceDevices = listWithMaint.filter((x) => x.maintenanceActive || x.status === 'maintenance').length;
 
     let status = 'up';
     if (downDevices > 0) status = 'down';
@@ -256,7 +278,8 @@ async function getProjectsWithDevices(userId) {
 
     return {
       ...p,
-      devices: list,
+      maintenanceActive: storeMaintenanceActive,
+      devices: listWithMaint,
       totalDevices,
       upDevices,
       downDevices,
@@ -266,6 +289,98 @@ async function getProjectsWithDevices(userId) {
     };
   });
 }
+
+
+// Maintenance mode (Premium only)
+// Set maintenance for a device: startTime required, endTime optional (null = until manually cleared)
+router.post('/api/maintenance/device/:deviceId', requireAuth, requirePremium, async (req, res) => {
+  try {
+    const deviceId = req.params.deviceId;
+    const { startTime, endTime } = req.body || {};
+    const start = parseMaybeTime(startTime);
+    const end = parseMaybeTime(endTime);
+
+    if (!start) return res.status(400).json({ error: 'startTime is required (ISO datetime)' });
+    if (end && end < start) return res.status(400).json({ error: 'endTime must be after startTime' });
+
+    const r = await pool.query(
+      `UPDATE devices
+         SET maintenance_start=$1, maintenance_end=$2
+       WHERE id=$3 AND user_id=$4
+       RETURNING id, maintenance_start, maintenance_end`,
+      [start.toISOString(), end ? end.toISOString() : null, deviceId, req.user.id]
+    );
+    if (!r.rows[0]) return res.status(404).json({ error: 'device not found' });
+    res.json({ ok: true, device: r.rows[0] });
+  } catch (e) {
+    console.error('maintenance device set error', e);
+    res.status(500).json({ error: 'failed' });
+  }
+});
+
+// Clear maintenance for device
+router.delete('/api/maintenance/device/:deviceId', requireAuth, requirePremium, async (req, res) => {
+  try {
+    const deviceId = req.params.deviceId;
+    const r = await pool.query(
+      `UPDATE devices
+         SET maintenance_start=NULL, maintenance_end=NULL
+       WHERE id=$1 AND user_id=$2
+       RETURNING id`,
+      [deviceId, req.user.id]
+    );
+    if (!r.rows[0]) return res.status(404).json({ error: 'device not found' });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('maintenance device clear error', e);
+    res.status(500).json({ error: 'failed' });
+  }
+});
+
+// Set maintenance for a project/store (applies to all devices via suppression)
+router.post('/api/maintenance/store/:storeId', requireAuth, requirePremium, async (req, res) => {
+  try {
+    const storeId = req.params.storeId;
+    const { startTime, endTime } = req.body || {};
+    const start = parseMaybeTime(startTime);
+    const end = parseMaybeTime(endTime);
+
+    if (!start) return res.status(400).json({ error: 'startTime is required (ISO datetime)' });
+    if (end && end < start) return res.status(400).json({ error: 'endTime must be after startTime' });
+
+    const r = await pool.query(
+      `UPDATE stores
+         SET maintenance_start=$1, maintenance_end=$2
+       WHERE id=$3 AND user_id=$4
+       RETURNING id, maintenance_start, maintenance_end`,
+      [start.toISOString(), end ? end.toISOString() : null, storeId, req.user.id]
+    );
+    if (!r.rows[0]) return res.status(404).json({ error: 'store not found' });
+    res.json({ ok: true, store: r.rows[0] });
+  } catch (e) {
+    console.error('maintenance store set error', e);
+    res.status(500).json({ error: 'failed' });
+  }
+});
+
+// Clear maintenance for store
+router.delete('/api/maintenance/store/:storeId', requireAuth, requirePremium, async (req, res) => {
+  try {
+    const storeId = req.params.storeId;
+    const r = await pool.query(
+      `UPDATE stores
+         SET maintenance_start=NULL, maintenance_end=NULL
+       WHERE id=$1 AND user_id=$2
+       RETURNING id`,
+      [storeId, req.user.id]
+    );
+    if (!r.rows[0]) return res.status(404).json({ error: 'store not found' });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('maintenance store clear error', e);
+    res.status(500).json({ error: 'failed' });
+  }
+});
 
 router.get('/api/projects', requireAuth, async (req, res) => {
   try {

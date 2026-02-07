@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS stores (
     name TEXT NOT NULL,
     location TEXT,
     notes TEXT,
+    maintenance_start TIMESTAMPTZ,
+    maintenance_end TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (id, user_id)
@@ -38,6 +40,8 @@ CREATE TABLE IF NOT EXISTS devices (
     ping_interval INT NOT NULL DEFAULT 60, -- seconds
     ping_packets INT NOT NULL DEFAULT 10,
     notes TEXT,
+    maintenance_start TIMESTAMPTZ,
+    maintenance_end TIMESTAMPTZ,
     status TEXT NOT NULL DEFAULT 'unknown', -- up, down, warning, maintenance
     packet_loss INT,
     last_check TIMESTAMPTZ,
@@ -107,3 +111,7 @@ CREATE TABLE IF NOT EXISTS alert_events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_alert_events_user_device ON alert_events(user_id, device_id);
+
+-- Maintenance window indexes
+CREATE INDEX IF NOT EXISTS idx_devices_maintenance ON devices(user_id, maintenance_start, maintenance_end);
+CREATE INDEX IF NOT EXISTS idx_stores_maintenance ON stores(user_id, maintenance_start, maintenance_end);

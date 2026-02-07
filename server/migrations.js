@@ -13,6 +13,17 @@ async function ensureLocalAuthSchema() {
   await pool.query("UPDATE users SET plan='free' WHERE plan IS NULL");
 
 
+
+  // Maintenance windows (per store and per device)
+  await pool.query('ALTER TABLE stores ADD COLUMN IF NOT EXISTS maintenance_start TIMESTAMPTZ');
+  await pool.query('ALTER TABLE stores ADD COLUMN IF NOT EXISTS maintenance_end TIMESTAMPTZ');
+  await pool.query('ALTER TABLE devices ADD COLUMN IF NOT EXISTS maintenance_start TIMESTAMPTZ');
+  await pool.query('ALTER TABLE devices ADD COLUMN IF NOT EXISTS maintenance_end TIMESTAMPTZ');
+
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_devices_maintenance ON devices(user_id, maintenance_start, maintenance_end)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_stores_maintenance ON stores(user_id, maintenance_start, maintenance_end)');
+
+
   // Ensure uniqueness for non-null usernames (multiple NULLs allowed)
   await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS users_username_unique ON users(username) WHERE username IS NOT NULL');
 }
