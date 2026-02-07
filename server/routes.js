@@ -1,7 +1,7 @@
 const express = require('express');
 const { pool } = require('./db');
 const { requireAuth, passport } = require('./auth');
-const { requirePremium } = require('./require-premium');
+const requirePremium = require('./require-premium');
 const bcrypt = require('bcryptjs');
 const {
   getPlanLimits: resolvePlanLimits,
@@ -739,11 +739,30 @@ router.post('/api/devices/:deviceId/test-now', requireAuth, requirePremium, asyn
 // --- Device history (for graphs) ---
 router.get('/api/devices/:deviceId/history', requireAuth, async (req, res) => {
   const { deviceId } = req.params;
+
+  // limit: max number of returned points (capped to protect DB)
   const requestedLimit = Number(req.query.limit || 60);
   if (!Number.isFinite(requestedLimit) || requestedLimit < 1) {
     return res.status(400).json({ error: 'limit must be a positive number' });
   }
   const limit = Math.min(Math.floor(requestedLimit), 500);
+
+  // range: optional time window filter for charts
+  // Allowed values: 24h / 7d / 30d
+  const range = String(req.query.range || '').trim();
+  let startTs = null;
+  if (range) {
+    const now = Date.now();
+    const map = {
+      '24h': 24 * 60 * 60 * 1000,
+      '7d': 7 * 24 * 60 * 60 * 1000,
+      '30d': 30 * 24 * 60 * 60 * 1000
+    };
+    if (!Object.prototype.hasOwnProperty.call(map, range)) {
+      return res.status(400).json({ error: 'range must be one of 24h,7d,30d' });
+    }
+    startTs = new Date(now - map[range]).toISOString();
+  }
 
   try {
     // Ownership enforced by join on devices.user_id
@@ -755,27 +774,51 @@ router.get('/api/devices/:deviceId/history', requireAuth, async (req, res) => {
 
     let historyRows;
     try {
-      const { rows } = await pool.query(
-        `SELECT ts, status, latency_ms, status_code, detail
-         FROM device_history
-         WHERE device_id=$1
-         ORDER BY ts DESC
-         LIMIT $2`,
-        [deviceId, limit]
-      );
-      historyRows = rows;
+      if (startTs) {
+        const { rows } = await pool.query(
+          `SELECT ts, status, latency_ms, status_code, detail
+           FROM device_history
+           WHERE device_id=$1 AND ts >= $2
+           ORDER BY ts DESC
+           LIMIT $3`,
+          [deviceId, startTs, limit]
+        );
+        historyRows = rows;
+      } else {
+        const { rows } = await pool.query(
+          `SELECT ts, status, latency_ms, status_code, detail
+           FROM device_history
+           WHERE device_id=$1
+           ORDER BY ts DESC
+           LIMIT $2`,
+          [deviceId, limit]
+        );
+        historyRows = rows;
+      }
     } catch (historyErr) {
       if (historyErr && historyErr.code !== '42703') throw historyErr;
 
-      const { rows } = await pool.query(
-        `SELECT timestamp AS ts, status, latency AS latency_ms, NULL::int AS status_code, detail
-         FROM device_history
-         WHERE device_id=$1
-         ORDER BY timestamp DESC
-         LIMIT $2`,
-        [deviceId, limit]
-      );
-      historyRows = rows;
+      if (startTs) {
+        const { rows } = await pool.query(
+          `SELECT timestamp AS ts, status, latency AS latency_ms, NULL::int AS status_code, detail
+           FROM device_history
+           WHERE device_id=$1 AND timestamp >= $2
+           ORDER BY timestamp DESC
+           LIMIT $3`,
+          [deviceId, startTs, limit]
+        );
+        historyRows = rows;
+      } else {
+        const { rows } = await pool.query(
+          `SELECT timestamp AS ts, status, latency AS latency_ms, NULL::int AS status_code, detail
+           FROM device_history
+           WHERE device_id=$1
+           ORDER BY timestamp DESC
+           LIMIT $2`,
+          [deviceId, limit]
+        );
+        historyRows = rows;
+      }
     }
 
     res.json({ history: historyRows.reverse() }); // oldest->newest for charts

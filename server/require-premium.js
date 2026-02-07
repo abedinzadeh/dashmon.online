@@ -5,7 +5,7 @@ function requirePremium(req, res, next) {
   if (plan === 'premium') return next();
 
   const wantsJson =
-    req.path.startsWith('/api/') ||
+    (typeof req.path === 'string' && req.path.startsWith('/api/')) ||
     (req.headers.accept && req.headers.accept.includes('application/json')) ||
     req.xhr;
 
@@ -19,4 +19,5 @@ function requirePremium(req, res, next) {
   return res.redirect('/app/pricing.html');
 }
 
-module.exports = { requirePremium };
+module.exports = requirePremium;
+module.exports.requirePremium = requirePremium;

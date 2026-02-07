@@ -261,6 +261,60 @@ test('GET /api/devices/:deviceId/history caps limit at 500', async () => {
   assert.equal(historyQuery.params[1], 500);
 });
 
+
+test('GET /api/devices/:deviceId/history applies range filter when provided', async () => {
+  const calls = [];
+  const poolMock = {
+    async query(sql, params) {
+      calls.push({ sql, params });
+
+      if (sql.includes('SELECT id FROM devices')) {
+        return { rows: [{ id: params[0] }] };
+      }
+
+      if (sql.includes('FROM device_history') && sql.includes('ts >= $2') && sql.includes('LIMIT $3')) {
+        return { rows: [] };
+      }
+
+      throw new Error(`Unexpected SQL: ${sql}`);
+    }
+  };
+
+  const router = buildRouterWithMocks(poolMock);
+  const handler = findHandler(router, 'get', '/api/devices/:deviceId/history');
+
+  const req = { params: { deviceId: 'dev-1' }, query: { range: '24h', limit: '123' }, user: { id: 'user-1' } };
+  const res = createRes();
+
+  await handler(req, res);
+
+  assert.equal(res.statusCode, 200);
+  const historyQuery = calls.find((c) => c.sql.includes('FROM device_history') && c.sql.includes('ts >= $2'));
+  assert.ok(historyQuery, 'expected ranged history query');
+  assert.equal(historyQuery.params[0], 'dev-1');
+  assert.ok(historyQuery.params[1], 'expected startTs param');
+  assert.equal(historyQuery.params[2], 123);
+});
+
+test('GET /api/devices/:deviceId/history rejects invalid range values', async () => {
+  const poolMock = {
+    async query() {
+      throw new Error('pool.query should not be called for invalid range');
+    }
+  };
+
+  const router = buildRouterWithMocks(poolMock);
+  const handler = findHandler(router, 'get', '/api/devices/:deviceId/history');
+
+  const req = { params: { deviceId: 'dev-1' }, query: { range: '90d' }, user: { id: 'user-1' } };
+  const res = createRes();
+
+  await handler(req, res);
+
+  assert.equal(res.statusCode, 400);
+  assert.deepEqual(res.payload, { error: 'range must be one of 24h,7d,30d' });
+});
+
 test('GET /api/metrics/down-events falls back to legacy timestamp column', async () => {
   const calls = [];
   const poolMock = {

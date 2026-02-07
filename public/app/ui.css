@@ -1,0 +1,118 @@
+:root {
+  --dm-bg: #0b1220;
+  --dm-panel: #0f172a;
+  --dm-card: rgba(255, 255, 255, 0.06);
+  --dm-border: rgba(255, 255, 255, 0.10);
+  --dm-text: #e5e7eb;
+  --dm-muted: #94a3b8;
+  --dm-brand: #8b5cf6;
+}
+
+body {
+  background:
+    radial-gradient(1200px 600px at 20% -10%, rgba(139, 92, 246, 0.22), transparent 60%),
+    radial-gradient(900px 500px at 90% 0%, rgba(59, 130, 246, 0.16), transparent 55%),
+    var(--dm-bg);
+  color: var(--dm-text);
+}
+
+.dm-card {
+  background: var(--dm-card);
+  border: 1px solid var(--dm-border);
+  border-radius: 16px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
+}
+
+.dm-subtle {
+  color: var(--dm-muted);
+}
+
+.dm-btn {
+  border-radius: 12px;
+  font-weight: 600;
+}
+
+.dm-input {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--dm-border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  outline: none;
+}
+
+.dm-input:focus {
+  border-color: rgba(139, 92, 246, 0.65);
+  box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.12);
+}
+
+.dm-pill {
+  border: 1px solid var(--dm-border);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--dm-muted);
+}
+
+.dm-pill[data-active="true"] {
+  border-color: rgba(139, 92, 246, 0.6);
+  background: rgba(139, 92, 246, 0.16);
+  color: #f5f3ff;
+}
+
+.dm-skeleton {
+  background: linear-gradient(90deg, rgba(255,255,255,0.05), rgba(255,255,255,0.10), rgba(255,255,255,0.05));
+  background-size: 200% 100%;
+  animation: dmShimmer 1.2s infinite;
+  border-radius: 12px;
+}
+
+@keyframes dmShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Chart wrapper helpers */
+.dm-chartWrap {
+  position: relative;
+  height: 160px;
+}
+
+.dm-chartState {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 12px;
+}
+
+
+.dm-seg {
+  display: inline-flex;
+  padding: 4px;
+  border-radius: 999px;
+  border: 1px solid var(--dm-border);
+  background: rgba(0, 0, 0, 0.2);
+  gap: 4px;
+}
+
+.dm-seg-btn {
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(226, 232, 240, 0.9);
+  background: transparent;
+}
+
+.dm-seg-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.dm-seg-btn.is-active {
+  background: rgba(139, 92, 246, 0.22);
+  color: #f5f3ff;
+  border: 1px solid rgba(139, 92, 246, 0.35);
+}
