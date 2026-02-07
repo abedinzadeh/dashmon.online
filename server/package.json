@@ -5,7 +5,8 @@
   "type": "commonjs",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/*.test.js",
+    "smoke": "node smoke/smoke.js"
   },
   "dependencies": {
     "connect-redis": "^7.1.0",

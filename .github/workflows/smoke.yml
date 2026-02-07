@@ -1,0 +1,82 @@
+name: Smoke Test
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Create .env for docker compose
+        run: |
+          cat > .env <<'ENV'
+          # Minimal env for CI
+          APP_DOMAIN=localhost
+          APP_BASE_URL=http://127.0.0.1:3000
+          NODE_ENV=production
+          SESSION_SECRET=ci_smoke_secret_change_me
+
+          POSTGRES_DB=dashmon
+          POSTGRES_USER=dashmon
+          POSTGRES_PASSWORD=dashmon_ci_password
+
+          REDIS_URL=redis://redis:6379
+
+          # Dummy Google OAuth vars to satisfy strategy init
+          GOOGLE_CLIENT_ID=dummy
+          GOOGLE_CLIENT_SECRET=dummy
+          GOOGLE_CALLBACK_URL=http://127.0.0.1:3000/auth/google/callback
+
+          # SMTP dummy (not used by smoke, but keeps env complete)
+          SMTP_HOST=localhost
+          SMTP_PORT=25
+          SMTP_SECURE=false
+          SMTP_USER=dummy
+          SMTP_PASS=dummy
+          SMTP_FROM=smoke@example.com
+          ENV
+
+      - name: Build and start services
+        run: |
+          docker compose up -d --build
+          docker compose ps
+
+      - name: Wait for health
+        run: |
+          for i in {1..60}; do
+            if curl -fsS http://127.0.0.1:3000/api/health >/dev/null; then
+              echo "Healthy"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Timed out waiting for /api/health"
+          docker compose logs --no-color --tail=200 app || true
+          docker compose logs --no-color --tail=200 postgres || true
+          exit 1
+
+      - name: Run smoke test (auto-signup)
+        env:
+          SMOKE_BASE_URL: http://127.0.0.1:3000
+          SMOKE_SIGNUP: "1"
+          SMOKE_IDENTIFIER: smoke@example.com
+          SMOKE_EMAIL: smoke@example.com
+          SMOKE_PASSWORD: ${{ secrets.SMOKE_PASSWORD || 'SmokePassword123!' }}
+        run: |
+          node server/smoke/smoke.js
+
+      - name: Dump logs on failure
+        if: failure()
+        run: |
+          docker compose logs --no-color --tail=200 app || true
+          docker compose logs --no-color --tail=200 worker || true
+          docker compose logs --no-color --tail=200 postgres || true

@@ -12,6 +12,26 @@ const { createMemoryRateLimiter } = require('./rate-limit');
 const router = express.Router();
 router.use(express.json());
 
+// --- Health (public) ---
+// Used by smoke tests / load balancers to validate app + DB connectivity.
+router.get('/api/health', async (_req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    res.json({
+      ok: true,
+      service: 'dashmon',
+      time: new Date().toISOString()
+    });
+  } catch (e) {
+    res.status(503).json({
+      ok: false,
+      service: 'dashmon',
+      time: new Date().toISOString(),
+      error: 'db_unavailable'
+    });
+  }
+});
+
 // --- Local auth (Email/UserID + Password) ---
 router.post('/auth/local/signup', async (req, res) => {
   try {
