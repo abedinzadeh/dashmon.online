@@ -6,6 +6,7 @@
   <title>Dashmon - Device Details</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="ui.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="./scroll-lock.js"></script>
   <script src="./chart-lifecycle.js"></script>
@@ -479,7 +480,116 @@ function bindProjectMaintenanceUI(){
   // charts
   let deviceChart = null;
   let pdAnalyticsChart = null;
+  let infraWeeklyChart = null;
+  let infraTimelineChart = null;
+
+  function setInfraEmpty(which, isEmpty){
+    const el = document.getElementById(which);
+    if(el) el.classList.toggle('hidden', !isEmpty);
+  }
+
+  function computeUptimeScore(entry){
+    // Dashmon history doesn't have packet loss. We treat status as the uptime signal.
+    // - up/success => 100
+    // - warning => 70
+    // - down/failed => 0
+    const s = (entry.status || '').toLowerCase();
+    if (s === 'up' || s === 'success' || s === 'ok') return 100;
+    if (s === 'warning' || s === 'degraded') return 70;
+    if (s === 'maintenance') return 100;
+    return 0;
+  }
+
+  function renderInfraCharts(history){
+    const weeklyCanvas = document.getElementById('infraWeeklyChart');
+    const timelineCanvas = document.getElementById('infraTimelineChart');
+    if(!weeklyCanvas || !timelineCanvas || typeof Chart==='undefined') return;
+
+    if(infraWeeklyChart){ infraWeeklyChart.destroy(); infraWeeklyChart = null; }
+    if(infraTimelineChart){ infraTimelineChart.destroy(); infraTimelineChart = null; }
+
+    const hist = Array.isArray(history) ? history.slice() : [];
+    if(!hist.length){
+      setInfraEmpty('infraWeeklyEmpty', true);
+      setInfraEmpty('infraTimelineEmpty', true);
+      return;
+    }
+    setInfraEmpty('infraWeeklyEmpty', false);
+    setInfraEmpty('infraTimelineEmpty', false);
+
+    // --- Weekly uptime (last 7 days, grouped by day name like Infra dashboard) ---
+    const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const now = Date.now();
+    const sevenDaysAgo = now - (7*24*60*60*1000);
+
+    const dayBuckets = days.map(()=>({scores:[]}));
+    hist.forEach(h=>{
+      const ts = new Date(h.ts || h.timestamp || h.time || 0).getTime();
+      if(!ts || ts < sevenDaysAgo) return;
+      const d = new Date(ts).getDay();
+      const score = computeUptimeScore(h);
+      dayBuckets[d].scores.push(score);
+    });
+
+    const weeklyUptime = dayBuckets.map(b=>{
+      if(!b.scores.length) return 0;
+      const avg = b.scores.reduce((a,b)=>a+b,0)/b.scores.length;
+      return Math.round(avg);
+    });
+
+    infraWeeklyChart = new Chart(weeklyCanvas.getContext('2d'),{
+      type:'bar',
+      data:{
+        labels: days,
+        datasets:[{
+          label:'Average Uptime %',
+          data: weeklyUptime,
+          backgroundColor: weeklyUptime.map(u=> u>=90 ? 'rgba(16,185,129,0.35)' : u>=70 ? 'rgba(245,158,11,0.35)' : 'rgba(239,68,68,0.35)'),
+          borderColor: weeklyUptime.map(u=> u>=90 ? 'rgba(16,185,129,0.9)' : u>=70 ? 'rgba(245,158,11,0.9)' : 'rgba(239,68,68,0.9)'),
+          borderWidth: 1
+        }]
+      },
+      options:{
+        responsive:true,
+        maintainAspectRatio:false,
+        plugins:{
+          legend:{display:false},
+          tooltip:{callbacks:{ label:(ctx)=> `Uptime: ${ctx.parsed.y}%`}}
+        },
+        scales:{
+          x:{ ticks:{ color:'rgba(229,231,235,0.75)' }, grid:{ color:'rgba(255,255,255,0.06)'} },
+          y:{ beginAtZero:true, max:100, ticks:{ color:'rgba(229,231,235,0.75)', callback:(v)=> v+'%' }, grid:{ color:'rgba(255,255,255,0.06)' } }
+        }
+      }
+    });
+
+    // --- Timeline (last 48 checks as bars, like Infra dashboard) ---
+    const recent = hist.slice(-48);
+    const labels = recent.map(h=>{
+      const d = new Date(h.ts || h.timestamp || 0);
+      return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    });
+    const scores = recent.map(computeUptimeScore);
+    const bg = scores.map(u=> u>=90 ? 'rgba(16,185,129,0.35)' : u>=70 ? 'rgba(245,158,11,0.35)' : 'rgba(239,68,68,0.35)');
+    const bd = scores.map(u=> u>=90 ? 'rgba(16,185,129,0.9)' : u>=70 ? 'rgba(245,158,11,0.9)' : 'rgba(239,68,68,0.9)');
+
+    infraTimelineChart = new Chart(timelineCanvas.getContext('2d'),{
+      type:'bar',
+      data:{ labels, datasets:[{ label:'Uptime %', data:scores, backgroundColor:bg, borderColor:bd, borderWidth:1, barPercentage:0.9, categoryPercentage:0.95 }]},
+      options:{
+        responsive:true,
+        maintainAspectRatio:false,
+        plugins:{ legend:{display:false}, tooltip:{callbacks:{ label:(ctx)=> `Uptime: ${ctx.parsed.y}%` }} },
+        scales:{
+          x:{ ticks:{ maxTicksLimit:8, color:'rgba(229,231,235,0.75)' }, grid:{ display:false } },
+          y:{ beginAtZero:true, max:100, ticks:{ color:'rgba(229,231,235,0.75)', callback:(v)=> v+'%' }, grid:{ color:'rgba(255,255,255,0.06)' } }
+        }
+      }
+    });
+  }
+
   const sparkCharts = new Map();
+
 
   function isPremiumUser(){ return (window.__me && String(window.__me.plan).toLowerCase()==='premium'); }
 
@@ -608,6 +718,8 @@ function bindProjectMaintenanceUI(){
     const hr = await apiFetch(`/api/devices/${encodeURIComponent(device.id)}/history?limit=60`);
     if(hr.ok && typeof Chart!=='undefined'){
       const hist = (await hr.json()).history || [];
+      // Extra charts (Infra monitoring style)
+      renderInfraCharts(hist);
       const labels = hist.map(h => new Date(h.ts).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}));
       const values = hist.map(h => (h.latency_ms==null ? null : Number(h.latency_ms)));
       if(deviceChart){
@@ -645,6 +757,8 @@ function bindProjectMaintenanceUI(){
     modal.classList.add('hidden'); modal.classList.remove('flex');
     if(deviceChart){ deviceChart.destroy(); deviceChart = null; }
     if(pdAnalyticsChart){ pdAnalyticsChart.destroy(); pdAnalyticsChart = null; }
+    if(infraWeeklyChart){ infraWeeklyChart.destroy(); infraWeeklyChart = null; }
+    if(infraTimelineChart){ infraTimelineChart.destroy(); infraTimelineChart = null; }
     const wrap = document.getElementById('pdAdvancedWrap');
     if(wrap) wrap.classList.add('hidden');
     scrollLock?.unlock();
@@ -917,6 +1031,27 @@ function bindProjectMaintenanceUI(){
             </div>
             <div class="h-40">
               <canvas id="projectDeviceChart"></canvas>
+            </div>
+          </div>
+
+          <div class="p-4 rounded-xl bg-black/20 border border-white/10 dm-card">
+            <div class="flex items-center justify-between gap-3 mb-2">
+              <div>
+                <div class="text-sm font-semibold text-gray-200">Infra-style uptime</div>
+                <div class="text-xs text-gray-400">Weekly uptime + recent timeline</div>
+              </div>
+              <div class="text-xs text-gray-500">Uses same device history</div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="relative h-40">
+                <div id="infraWeeklyEmpty" class="dm-empty hidden">No data for weekly uptime.</div>
+                <canvas id="infraWeeklyChart" class="w-full h-full"></canvas>
+              </div>
+              <div class="relative h-40">
+                <div id="infraTimelineEmpty" class="dm-empty hidden">No data for timeline.</div>
+                <canvas id="infraTimelineChart" class="w-full h-full"></canvas>
+              </div>
             </div>
           </div>
 
