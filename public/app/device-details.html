@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dashmon - Project</title>
+  <title>Dashmon - Device Details</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -28,6 +28,7 @@
       <div class="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 id="projectName" class="text-2xl font-extrabold">Project</h1>
+        <div id="projectMaintenanceLine" class="mt-2"></div>
           <div class="text-gray-400 text-sm mt-1">Project ID: <span id="projectId"></span></div>
           <div id="projectLocation" class="text-gray-400 text-sm mt-1"></div>
         </div>
@@ -36,6 +37,9 @@
           <button id="deleteProjectBtn" class="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 font-semibold"><i class="fas fa-trash mr-2"></i>Delete Project</button>
           <button id="projectEmailAlertsBtn" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-semibold">
             <i class="fas fa-envelope mr-2"></i>Email Alerts
+          </button>
+          <button id="projectMaintenanceBtn" class="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 font-semibold">
+            <i class="fas fa-tools mr-2"></i>Maintenance
           </button>
           <button id="addDeviceBtn" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 font-semibold">
             <i class="fas fa-plus mr-2"></i>Add Device
@@ -144,7 +148,7 @@
 (function(){
   const $ = (id)=>document.getElementById(id);
   const qs = new URLSearchParams(location.search);
-  const projectId = qs.get('projectId');
+  const projectId = qs.get('projectId') || qs.get('storeId') || qs.get('id');
   let devicesCache = [];
   let currentProject = null;
   const scrollLock = typeof createScrollLock === 'function' ? createScrollLock(window, document) : null;
@@ -170,13 +174,164 @@
     return 'text-gray-400';
   }
 
+
+  function isMaintenanceActive(startIso, endIso){
+    if(!startIso) return false;
+    const now = Date.now();
+    const s = new Date(startIso).getTime();
+    const e = endIso ? new Date(endIso).getTime() : null;
+    return now >= s && (!e || now <= e);
+  }
+
+  function maintenanceSummary(startIso, endIso){
+    if(!startIso) return '';
+    const s = new Date(startIso).toLocaleString();
+    const e = endIso ? new Date(endIso).toLocaleString() : 'until cleared';
+    return `${s} → ${e}`;
+  }
+
+  function canUseMaintenance(){
+    if(window.__me && window.__me.plan) return (window.__me.plan === "premium");
+    const b = document.getElementById("userPlanBadge");
+    if(b && (b.textContent||"").toLowerCase().includes("premium")) return true;
+    return false;
+  }
+
+  function showModal(id){ const el=$(id); if(!el) return; el.classList.remove('hidden'); el.classList.add('flex'); }
+  function hideModal(id){ const el=$(id); if(!el) return; el.classList.add('hidden'); el.classList.remove('flex'); }
+
+  function fillDateTimeLocal(inputId, iso){
+    const el=$(inputId); if(!el) return;
+    el.value = iso ? new Date(iso).toISOString().slice(0,16) : '';
+  }
+
+  async function setProjectMaintenance(storeId, startTime, endTime){
+    return apiFetch(`/api/maintenance/store/${encodeURIComponent(storeId)}`, { method:'POST', headers:{'Content-Type':'application/json'}, body:{ startTime, endTime } });
+  }
+  async function clearProjectMaintenance(storeId){
+    return apiFetch(`/api/maintenance/store/${encodeURIComponent(storeId)}`, { method:'DELETE' });
+  }
+  async function setDeviceMaintenance(deviceId, startTime, endTime){
+    return apiFetch(`/api/maintenance/device/${encodeURIComponent(deviceId)}`, { method:'POST', headers:{'Content-Type':'application/json'}, body:{ startTime, endTime } });
+  }
+  async function clearDeviceMaintenance(deviceId){
+    return apiFetch(`/api/maintenance/device/${encodeURIComponent(deviceId)}`, { method:'DELETE' });
+  }
+
   async function checkAuth(){
     const r = await apiFetch('/api/me', {redirect:'manual'});
     if(!r.ok){ location.href='/login.html'; return false;}
     const u = await r.json();
+    window.__me = u;
     $('userPlanBadge').textContent = (u.plan||'free').toUpperCase();
     $('userPlanBadge').className = 'px-2 py-1 rounded-full text-xs font-bold ' + (u.plan==='premium'?'bg-yellow-600 text-black':'bg-gray-700 text-white');
     return true;
+  }
+  function updateProjectMaintenanceLine(project){
+    const line = $('projectMaintenanceLine');
+    if(!line) return;
+    const active = !!project.maintenanceActive || isMaintenanceActive(project.maintenance_start, project.maintenance_end);
+    project.maintenanceActive = active;
+    if(active){
+      line.innerHTML = `<div class="inline-flex items-center gap-2 text-sm text-purple-200">
+        <span class="px-2 py-0.5 rounded-full bg-purple-500/20 border border-purple-400/30 font-semibold">MAINTENANCE</span>
+        <span>${escapeHtml(maintenanceSummary(project.maintenance_start, project.maintenance_end))}</span>
+      </div>`;
+    } else {
+      line.innerHTML = `<div class="text-sm text-gray-400">Not in maintenance.</div>`;
+    }
+  }
+
+  function wireProjectMaintenanceModal(projectId, project){
+    const btn = $('projectMaintenanceBtn');
+    if(btn){
+      btn.addEventListener('click', ()=>{
+        showModal('projectMaintenanceModal');
+        const active = !!project.maintenanceActive;
+        $('projectMaintenanceStatus').innerHTML = active
+          ? `<div class="text-purple-200 font-semibold">Active: ${escapeHtml(maintenanceSummary(project.maintenance_start, project.maintenance_end))}</div>`
+          : `<div class="text-gray-400">Not in maintenance.</div>`;
+        fillDateTimeLocal('projectMaintStart', project.maintenance_start);
+        fillDateTimeLocal('projectMaintEnd', project.maintenance_end);
+        const premium = canUseMaintenance();
+        $('projectMaintenanceUpgradeHint').style.display = premium ? 'none' : 'block';
+        $('projectMaintSave').disabled = !premium;
+        $('projectMaintClear').disabled = !premium;
+      });
+    }
+    const close = $('projectMaintenanceClose');
+    if(close) close.onclick = ()=> hideModal('projectMaintenanceModal');
+    const modal = $('projectMaintenanceModal');
+    if(modal) modal.addEventListener('click', (e)=>{ if(e.target===modal) hideModal('projectMaintenanceModal'); });
+
+    const save = $('projectMaintSave');
+    if(save){
+      save.onclick = async ()=>{
+        if(!canUseMaintenance()) return;
+        const start = $('projectMaintStart').value ? new Date($('projectMaintStart').value).toISOString() : null;
+        const end = $('projectMaintEnd').value ? new Date($('projectMaintEnd').value).toISOString() : null;
+        if(!start) return alert('Start time is required');
+        const r = await setProjectMaintenance(projectId, start, end);
+        const t = await r.json().catch(()=>({}));
+        if(!r.ok) return alert(t.error || 'Failed to set maintenance');
+        hideModal('projectMaintenanceModal');
+        await load();
+      };
+    }
+    const clr = $('projectMaintClear');
+    if(clr){
+      clr.onclick = async ()=>{
+        if(!canUseMaintenance()) return;
+        const r = await clearProjectMaintenance(projectId);
+        const t = await r.json().catch(()=>({}));
+        if(!r.ok) return alert(t.error || 'Failed to clear maintenance');
+        hideModal('projectMaintenanceModal');
+        await load();
+      };
+    }
+  }
+
+  function openDeviceMaintenanceModal(device){
+    showModal('deviceMaintenanceModal');
+    $('deviceMaintenanceSubtitle').textContent = `${device.name || 'Device'} • ${device.type || 'other'} • ${device.ip || ''}`;
+    const active = !!device.maintenanceActive;
+    $('deviceMaintenanceStatus').innerHTML = active
+      ? `<div class="text-purple-200 font-semibold">Active: ${escapeHtml(maintenanceSummary(device.maintenance_start, device.maintenance_end))}</div>`
+      : `<div class="text-gray-400">Not in maintenance.</div>`;
+    fillDateTimeLocal('deviceMaintStart', device.maintenance_start);
+    fillDateTimeLocal('deviceMaintEnd', device.maintenance_end);
+
+    const premium = canUseMaintenance();
+    $('deviceMaintenanceUpgradeHint').style.display = premium ? 'none' : 'block';
+    $('deviceMaintSave').disabled = !premium;
+    $('deviceMaintClear').disabled = !premium;
+
+    $('deviceMaintSave').onclick = async ()=>{
+      if(!canUseMaintenance()) return;
+      const start = $('deviceMaintStart').value ? new Date($('deviceMaintStart').value).toISOString() : null;
+      const end = $('deviceMaintEnd').value ? new Date($('deviceMaintEnd').value).toISOString() : null;
+      if(!start) return alert('Start time is required');
+      const r = await setDeviceMaintenance(device.id, start, end);
+      const t = await r.json().catch(()=>({}));
+      if(!r.ok) return alert(t.error || 'Failed to set maintenance');
+      hideModal('deviceMaintenanceModal');
+      await load();
+    };
+    $('deviceMaintClear').onclick = async ()=>{
+      if(!canUseMaintenance()) return;
+      const r = await clearDeviceMaintenance(device.id);
+      const t = await r.json().catch(()=>({}));
+      if(!r.ok) return alert(t.error || 'Failed to clear maintenance');
+      hideModal('deviceMaintenanceModal');
+      await load();
+    };
+  }
+
+  function wireDeviceMaintenanceModalClose(){
+    const close = $('deviceMaintenanceClose');
+    if(close) close.onclick = ()=> hideModal('deviceMaintenanceModal');
+    const modal = $('deviceMaintenanceModal');
+    if(modal) modal.addEventListener('click', (e)=>{ if(e.target===modal) hideModal('deviceMaintenanceModal'); });
   }
 
 function bindProjectMaintenanceUI(){
@@ -184,55 +339,73 @@ function bindProjectMaintenanceUI(){
     const modal = $('projectMaintenanceModal');
     if(!btn || !modal) return;
 
-    // open modal
-    btn.onclick = (e)=>{
-      e.preventDefault();
-      if(!currentProject) return;
+    const closeBtn = $('projectMaintenanceClose');
+    const statusEl = $('projectMaintenanceStatus');
+    const startEl = $('projectMaintStart');
+    const endEl = $('projectMaintEnd');
+    const saveBtn = $('projectMaintSave');
+    const clearBtn = $('projectMaintClear');
+    const upgradeHint = $('projectMaintenanceUpgradeHint');
+
+    function open(){
       showModal('projectMaintenanceModal');
 
-      const active = !!currentProject.maintenanceActive || isMaintenanceActive(currentProject.maintenance_start, currentProject.maintenance_end);
-      $('projectMaintenanceStatus').innerHTML = active
-        ? `<div class="text-purple-200 font-semibold">Active: ${escapeHtml(maintenanceSummary(currentProject.maintenance_start, currentProject.maintenance_end))}</div>`
-        : `<div class="text-gray-400">Not in maintenance.</div>`;
+      // project might not be loaded yet
+      if(!currentProject){
+        if(statusEl) statusEl.innerHTML = `<div class="text-gray-400">Loading project…</div>`;
+        return;
+      }
+
+      const active = isMaintenanceActive(currentProject.maintenance_start, currentProject.maintenance_end);
+      if(statusEl){
+        statusEl.innerHTML = active
+          ? `<div class="text-purple-200 font-semibold">Active: ${escapeHtml(maintenanceSummary(currentProject.maintenance_start, currentProject.maintenance_end))}</div>`
+          : `<div class="text-gray-400">Not in maintenance.</div>`;
+      }
 
       fillDateTimeLocal('projectMaintStart', currentProject.maintenance_start);
       fillDateTimeLocal('projectMaintEnd', currentProject.maintenance_end);
 
       const premium = canUseMaintenance();
-      $('projectMaintenanceUpgradeHint')?.classList.toggle('hidden', premium);
-      ['projectMaintSave','projectMaintClear','projectMaintStart','projectMaintEnd'].forEach(id=>{
-        const el=$(id); if(el) el.disabled = !premium;
-        if(el) el.classList.toggle('opacity-50', !premium);
-      });
-    };
+      if(upgradeHint) upgradeHint.classList.toggle('hidden', premium);
 
-    // close
-    $('projectMaintenanceClose')?.addEventListener('click', ()=>hideModal('projectMaintenanceModal'));
+      [startEl,endEl,saveBtn,clearBtn].forEach(el=>{
+        if(!el) return;
+        el.disabled = !premium;
+        el.classList.toggle('opacity-50', !premium);
+      });
+    }
+
+    btn.addEventListener('click', (e)=>{ e.preventDefault(); open(); });
+
+    if(closeBtn) closeBtn.addEventListener('click', ()=>hideModal('projectMaintenanceModal'));
     modal.addEventListener('click', (e)=>{ if(e.target===modal) hideModal('projectMaintenanceModal'); });
 
-    // actions
-    $('projectMaintSave')?.addEventListener('click', async ()=>{
+    if(saveBtn) saveBtn.addEventListener('click', async ()=>{
       if(!canUseMaintenance()) return;
-      const start = $('projectMaintStart')?.value ? new Date($('projectMaintStart').value).toISOString() : null;
-      const end = $('projectMaintEnd')?.value ? new Date($('projectMaintEnd').value).toISOString() : null;
+      const start = startEl && startEl.value ? new Date(startEl.value).toISOString() : null;
+      const end = endEl && endEl.value ? new Date(endEl.value).toISOString() : null;
       if(!start) return alert('Start time is required');
+
       const r = await setProjectMaintenance(projectId, start, end);
       const t = await r.json().catch(()=>({}));
       if(!r.ok) return alert(t.error || 'Failed to schedule maintenance');
+
       hideModal('projectMaintenanceModal');
       await load();
     });
 
-    $('projectMaintClear')?.addEventListener('click', async ()=>{
+    if(clearBtn) clearBtn.addEventListener('click', async ()=>{
       if(!canUseMaintenance()) return;
+
       const r = await clearProjectMaintenance(projectId);
       const t = await r.json().catch(()=>({}));
       if(!r.ok) return alert(t.error || 'Failed to clear maintenance');
+
       hideModal('projectMaintenanceModal');
       await load();
     });
   }
-
 
   async function load(){
     if(!projectId){ $('devicesList').innerHTML='<div class="text-red-400">Missing projectId</div>'; return; }
@@ -267,20 +440,31 @@ function bindProjectMaintenanceUI(){
     }
     devices.forEach(d=>{
       const div=document.createElement('div');
-      div.className='p-4 rounded-xl bg-gray-800/40 border border-gray-700 flex items-center justify-between gap-3';
+      const maintActive = !!d.maintenanceActive || isMaintenanceActive(d.maintenance_start, d.maintenance_end);
+      d.maintenanceActive = maintActive;
+      div.className = maintActive
+        ? 'p-4 rounded-xl bg-purple-900/20 border border-purple-500/30 flex items-center justify-between gap-3'
+        : 'p-4 rounded-xl bg-gray-800/40 border border-gray-700 flex items-center justify-between gap-3';
       div.innerHTML = `
         <div class="flex items-center gap-3">
           <div class="w-24 h-7">
             <canvas id="pspark_${d.id}" height="28"></canvas>
           </div>
           <div>
-            <div class="font-bold">${escapeHtml(d.name||'Device')}</div>
+            <div class="font-bold">${escapeHtml(d.name||'Device')}${d.maintenanceActive ? ' <span class="ml-2 text-xs px-2 py-0.5 rounded-full bg-purple-500/20 border border-purple-400/30 text-purple-200 font-semibold">MAINT</span>' : ''}</div>
             <div class="text-sm text-gray-400">${escapeHtml(d.type||'other')} • ${escapeHtml(d.ip||'')}</div>
           </div>
         </div>
-        <div class="font-bold ${statusColor(d.status)}">${(d.status||'unknown').toUpperCase()}</div>
+        <div class="flex items-center gap-3">
+          <button class="deviceMaintBtn px-2 py-1 rounded-lg border border-purple-400/30 bg-purple-500/10 hover:bg-purple-500/20 text-purple-100 text-xs font-semibold" title="Device maintenance">🛠</button>
+          <div class="font-bold ${statusColor(d.status)}">${(d.status||'unknown').toUpperCase()}</div>
+        </div>
       `;
       list.appendChild(div);
+      const mb = div.querySelector('.deviceMaintBtn');
+      if(mb){
+        mb.addEventListener('click', (e)=>{ e.stopPropagation(); openDeviceMaintenanceModal(d); });
+      }
       div.addEventListener('click', ()=> openDeviceDetails(d));
       const t = setTimeout(()=>renderSpark(d.id, renderToken),0);
       pendingSparkTimeouts.push(t);
@@ -709,34 +893,68 @@ function bindProjectMaintenanceUI(){
       </form>
     </div>
   </div>
-<!-- Project Maintenance Modal -->
+
+  <!-- Project Maintenance Modal -->
   <div id="projectMaintenanceModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 p-4">
-    <div class="w-full max-w-2xl rounded-2xl bg-gray-900 border border-gray-700 p-6">
-      <div class="flex items-center justify-between mb-4">
-        <h2 class="text-xl font-bold"><i class="fas fa-tools mr-2"></i>Maintenance (Project)</h2>
-        <button id="projectMaintenanceClose" class="text-2xl text-gray-400 hover:text-white">&times;</button>
+    <div class="w-full max-w-xl rounded-2xl border border-gray-700 bg-gray-900 p-6 shadow-2xl">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <h3 class="text-xl font-bold text-white">Project Maintenance</h3>
+          <p class="text-sm text-gray-400 mt-1">Suppress alerts for the whole project during scheduled work.</p>
+          <div class="text-sm mt-2" id="projectMaintenanceStatus"></div>
+        </div>
+        <button id="projectMaintenanceClose" class="text-gray-300 hover:text-white text-xl leading-none">×</button>
       </div>
 
-      <div id="projectMaintenanceStatus" class="text-sm text-gray-300 mb-3"></div>
-
-      <div class="grid md:grid-cols-2 gap-4">
-        <div>
-          <label class="block text-sm mb-1 text-gray-300">Start *</label>
-          <input id="projectMaintStart" type="datetime-local" class="w-full p-3 rounded-lg bg-gray-800 border border-gray-700">
+      <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div class="flex flex-col gap-1">
+          <label class="text-xs text-gray-400">Start</label>
+          <input id="projectMaintStart" type="datetime-local" class="bg-gray-900/40 border border-gray-700 rounded-lg px-3 py-2 text-sm">
         </div>
-        <div>
-          <label class="block text-sm mb-1 text-gray-300">End (optional)</label>
-          <input id="projectMaintEnd" type="datetime-local" class="w-full p-3 rounded-lg bg-gray-800 border border-gray-700">
+        <div class="flex flex-col gap-1">
+          <label class="text-xs text-gray-400">End (optional)</label>
+          <input id="projectMaintEnd" type="datetime-local" class="bg-gray-900/40 border border-gray-700 rounded-lg px-3 py-2 text-sm">
         </div>
       </div>
 
       <div class="mt-4 flex items-center justify-between gap-3">
-        <div id="projectMaintenanceUpgradeHint" class="text-xs text-amber-200/90 hidden">
-          Maintenance is Premium. Upgrade to enable.
+        <div class="text-xs text-amber-200/90" id="projectMaintenanceUpgradeHint" style="display:none;">Maintenance is Premium. Upgrade to enable.</div>
+        <div class="flex gap-2 ml-auto">
+          <button id="projectMaintSave" class="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 font-semibold">Schedule</button>
+          <button id="projectMaintClear" class="px-4 py-2 rounded-xl bg-gray-800/60 hover:bg-gray-700/60 border border-gray-700 text-gray-200 font-semibold">Clear</button>
         </div>
-        <div class="flex gap-3 ml-auto">
-          <button id="projectMaintClear" type="button" class="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 font-semibold">Clear</button>
-          <button id="projectMaintSave" type="button" class="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 font-semibold">Schedule</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Device Maintenance Modal -->
+  <div id="deviceMaintenanceModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 p-4">
+    <div class="w-full max-w-xl rounded-2xl border border-gray-700 bg-gray-900 p-6 shadow-2xl">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <h3 class="text-xl font-bold text-white">Device Maintenance</h3>
+          <p class="text-sm text-gray-400 mt-1" id="deviceMaintenanceSubtitle"></p>
+          <div class="text-sm mt-2" id="deviceMaintenanceStatus"></div>
+        </div>
+        <button id="deviceMaintenanceClose" class="text-gray-300 hover:text-white text-xl leading-none">×</button>
+      </div>
+
+      <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div class="flex flex-col gap-1">
+          <label class="text-xs text-gray-400">Start</label>
+          <input id="deviceMaintStart" type="datetime-local" class="bg-gray-900/40 border border-gray-700 rounded-lg px-3 py-2 text-sm">
+        </div>
+        <div class="flex flex-col gap-1">
+          <label class="text-xs text-gray-400">End (optional)</label>
+          <input id="deviceMaintEnd" type="datetime-local" class="bg-gray-900/40 border border-gray-700 rounded-lg px-3 py-2 text-sm">
+        </div>
+      </div>
+
+      <div class="mt-4 flex items-center justify-between gap-3">
+        <div class="text-xs text-amber-200/90" id="deviceMaintenanceUpgradeHint" style="display:none;">Maintenance is Premium. Upgrade to enable.</div>
+        <div class="flex gap-2 ml-auto">
+          <button id="deviceMaintSave" class="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 font-semibold">Schedule</button>
+          <button id="deviceMaintClear" class="px-4 py-2 rounded-xl bg-gray-800/60 hover:bg-gray-700/60 border border-gray-700 text-gray-200 font-semibold">Clear</button>
         </div>
       </div>
     </div>

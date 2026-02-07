@@ -8,7 +8,6 @@
 
   const state = {
     user: null,
-    timeZone: null,
     projects: [],
     expanded: new Set(),
     tvMode: false,
@@ -16,24 +15,6 @@
     lastDownCount: 0,
     emailAlert: { enabled: false, cooldownMinutes: 30, to: [] }
   };
-
-
-  function renderMaintenanceBadge(active, start, end) {
-    if (!active) return '';
-    const s = start ? new Date(start).toLocaleString() : '';
-    const e = end ? new Date(end).toLocaleString() : '';
-    const range = s ? (e ? `${s} → ${e}` : `${s} → until cleared`) : '';
-    return `<span class="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-yellow-500/20 text-yellow-200 border border-yellow-400/30" title="${escapeHtml(range)}">Maintenance</span>`;
-  }
-
-
-
-function fmtDateTime(value) {
-  if (window.formatDateTime) return window.formatDateTime(value, { timeZone: state.timeZone || 'UTC' });
-  // fallback
-  try { return new Date(value).toISOString(); } catch (_) { return ''; }
-}
-
 
 
   // Chart instances
@@ -245,102 +226,6 @@ function ensureLineChart(canvasId, label, points, existing) {
     return res;
   }
 
-
-async function setStoreMaintenance(storeId, startTime, endTime) {
-    return apiFetch(`/api/maintenance/store/${encodeURIComponent(storeId)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ startTime, endTime })
-    });
-  }
-  async function clearStoreMaintenance(storeId) {
-    return apiFetch(`/api/maintenance/store/${encodeURIComponent(storeId)}`, { method: 'DELETE' });
-  }
-  async function setDeviceMaintenance(deviceId, startTime, endTime) {
-    return apiFetch(`/api/maintenance/device/${encodeURIComponent(deviceId)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ startTime, endTime })
-    });
-  }
-  async function clearDeviceMaintenance(deviceId) {
-    return apiFetch(`/api/maintenance/device/${encodeURIComponent(deviceId)}`, { method: 'DELETE' });
-  }
-
-  function canUseMaintenance() {
-    return state.user && state.user.plan === 'premium';
-  }
-
-  function maintenanceControlsHtml(storeId, store) {
-    const active = !!store.maintenanceActive;
-    const startVal = store.maintenance_start ? new Date(store.maintenance_start).toISOString().slice(0,16) : '';
-    const endVal = store.maintenance_end ? new Date(store.maintenance_end).toISOString().slice(0,16) : '';
-    const disabled = canUseMaintenance() ? '' : 'disabled';
-    const disCls = canUseMaintenance() ? '' : 'opacity-50 cursor-not-allowed';
-    return `
-      <div class="space-y-2">
-        <div class="flex flex-col gap-2 ${disCls}">
-          <label class="text-xs text-gray-400">Start</label>
-          <input id="maintStart" type="datetime-local" value="${startVal}" class="bg-gray-900/40 border border-gray-700 rounded-lg px-3 py-2 text-sm" ${disabled}/>
-        </div>
-        <div class="flex flex-col gap-2 ${disCls}">
-          <label class="text-xs text-gray-400">End (optional)</label>
-          <input id="maintEnd" type="datetime-local" value="${endVal}" class="bg-gray-900/40 border border-gray-700 rounded-lg px-3 py-2 text-sm" ${disabled}/>
-        </div>
-        <div class="flex gap-2 justify-end">
-          <button id="maintSave" class="px-4 py-2 rounded-xl bg-yellow-500/20 hover:bg-yellow-500/30 border border-yellow-400/30 text-yellow-100 text-sm font-semibold ${disCls}" ${disabled}>
-            ${active ? 'Update' : 'Schedule'}
-          </button>
-          <button id="maintClear" class="px-4 py-2 rounded-xl bg-gray-800/60 hover:bg-gray-700/60 border border-gray-700 text-gray-200 text-sm font-semibold ${disCls}" ${disabled}>
-            Clear
-          </button>
-        </div>
-        ${canUseMaintenance() ? '' : `<div class="text-xs text-amber-200/90">Maintenance is Premium. Upgrade to enable.</div>`}
-      </div>
-    `;
-  }
-
-  async function wireMaintenanceControls(storeId, store) {
-    const controls = document.getElementById('maintenanceControls');
-    const status = document.getElementById('maintenanceStatus');
-    if (!controls || !status) return;
-
-    status.innerHTML = store.maintenanceActive
-      ? `<div class="text-sm text-yellow-200">Maintenance active${store.maintenance_end ? ' until ' + new Date(store.maintenance_end).toLocaleString() : ''}.</div>`
-      : `<div class="text-sm text-gray-400">Not in maintenance.</div>`;
-
-    controls.innerHTML = maintenanceControlsHtml(storeId, store);
-
-    const saveBtn = document.getElementById('maintSave');
-    const clearBtn = document.getElementById('maintClear');
-    const startEl = document.getElementById('maintStart');
-    const endEl = document.getElementById('maintEnd');
-
-    if (saveBtn) {
-      saveBtn.addEventListener('click', async () => {
-        if (!canUseMaintenance()) return;
-        const startTime = startEl && startEl.value ? new Date(startEl.value).toISOString() : null;
-        const endTime = endEl && endEl.value ? new Date(endEl.value).toISOString() : null;
-        if (!startTime) return alert('Start time is required');
-        const r = await setStoreMaintenance(storeId, startTime, endTime);
-        const t = await r.json().catch(() => ({}));
-        if (!r.ok) return alert(t.error || 'Failed to set maintenance');
-        await loadProjectDetails(storeId);
-      });
-    }
-
-    if (clearBtn) {
-      clearBtn.addEventListener('click', async () => {
-        if (!canUseMaintenance()) return;
-        const r = await clearStoreMaintenance(storeId);
-        const t = await r.json().catch(() => ({}));
-        if (!r.ok) return alert(t.error || 'Failed to clear maintenance');
-        await loadProjectDetails(storeId);
-      });
-    }
-  }
-
-
   async function checkAuth() {
     const res = await apiFetch('/api/me', { redirect: 'manual' });
     if (!res.ok) {
@@ -362,12 +247,6 @@ async function setStoreMaintenance(storeId, startTime, endTime) {
       badge.textContent = (state.user.plan || 'free').toUpperCase();
       badge.className = 'ml-3 px-2 py-1 rounded-full text-xs font-bold ' +
         (state.user.plan === 'premium' ? 'bg-yellow-600 text-black' : 'bg-gray-700 text-white');
-    }
-
-    const upgrade = $('upgradePageBtn');
-    if (upgrade && state.user) {
-      if (state.user.plan === 'premium') upgrade.classList.add('hidden');
-      else upgrade.classList.remove('hidden');
     }
     const soundToggle = $('soundToggle');
     if (soundToggle) {
@@ -689,7 +568,7 @@ function bindTvSummaryCards() {
           <div class="flex items-center gap-3">
             <span class="status-dot ${headerStatusClass}"></span>
             <div>
-              <h3 class="font-bold text-lg leading-tight">${escapeHtml(p.name || p.id)}${renderMaintenanceBadge(p.maintenanceActive, p.maintenance_start, p.maintenance_end)}</h3>
+              <h3 class="font-bold text-lg leading-tight">${escapeHtml(p.name || p.id)}</h3>
               <div class="text-xs text-gray-400">Project ID: ${escapeHtml(p.id)}</div>
             </div>
           </div>
@@ -735,7 +614,7 @@ function bindTvSummaryCards() {
 
       card.querySelector('[data-action="add-device"]').addEventListener('click', () => openAddDevice(p));
       card.querySelector('[data-action="details"]').addEventListener('click', () => {
-        window.location.href = `/app/project.html?projectId=${encodeURIComponent(p.id)}`;
+        window.location.href = `/app/device-details.html?projectId=${encodeURIComponent(p.id)}`;
       });
 
       // device click -> details modal
@@ -763,7 +642,7 @@ function bindTvSummaryCards() {
         // remove existing listeners in clone and just navigate to details
         clone.querySelectorAll('[data-action="toggle-expand"],[data-action="add-device"]').forEach(b => b.remove());
         clone.querySelector('[data-action="details"]').addEventListener('click', () => {
-          window.location.href = `/app/project.html?projectId=${encodeURIComponent(p.id)}`;
+          window.location.href = `/app/device-details.html?projectId=${encodeURIComponent(p.id)}`;
         });
         if (idx % 2 === 0) tvLeft.appendChild(clone); else tvRight.appendChild(clone);
       }
@@ -847,7 +726,7 @@ function bindTvSummaryCards() {
     $('deviceDetailsIp').textContent = d.ip || '';
     $('deviceDetailsStatus').textContent = (d.status || 'unknown').toUpperCase();
     $('deviceDetailsStatusDot').className = 'status-dot ' + statusClass(d.status || 'unknown');
-    $('deviceDetailsLastCheck').textContent = d.last_check ? fmtDateTime(d.last_check) : 'Never';
+    $('deviceDetailsLastCheck').textContent = d.last_check ? new Date(d.last_check).toLocaleString() : 'Never';
     $('deviceDetailsLoss').textContent = (d.packet_loss ?? '-') + '';
     $('deviceDetailsUrl').textContent = d.url || '-';
 
@@ -869,7 +748,7 @@ function bindTvSummaryCards() {
         const listEl = $('deviceDetailsHistory');
         if (listEl) {
           listEl.innerHTML = hist.slice(-30).reverse().map(x => {
-            const t = fmtDateTime(x.ts);
+            const t = new Date(x.ts).toLocaleString();
             const s = String(x.status || '').toUpperCase();
             const l = (x.latency_ms == null ? '-' : x.latency_ms + 'ms');
             return `<div class="flex justify-between gap-3 py-1 border-b border-white/5"><span>${t}</span><span>${s}</span><span>${l}</span></div>`;
@@ -1003,58 +882,4 @@ function bindTvSummaryCards() {
       alert('Dashboard error: ' + (e?.message || e));
     });
   });
-
-
-function openTimezoneModal() {
-  const modal = $('timezoneModal');
-  if (!modal) return;
-  $('timezoneInput').value = state.timeZone || '';
-  modal.classList.remove('hidden');
-  if (window.__scrollLock) window.__scrollLock.lock();
-}
-
-function closeTimezoneModal() {
-  const modal = $('timezoneModal');
-  if (!modal) return;
-  modal.classList.add('hidden');
-  if (window.__scrollLock) window.__scrollLock.unlock();
-}
-
-async function saveTimezonePreference() {
-  const tz = String($('timezoneInput').value || '').trim();
-
-  if ((state.user?.plan || 'free') !== 'premium') {
-    alert('Timezone preference is available on Premium plan only.');
-    return;
-  }
-
-  const r = await fetch('/api/user/preferences/timezone', {
-    method: 'PUT',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ timezone: tz || null })
-  });
-
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) {
-    alert(j?.error || 'Failed to update timezone');
-    return;
-  }
-
-  state.timeZone = j?.preferences?.timezone || null;
-  closeTimezoneModal();
-  // Re-render timestamps on screen
-  try { await refresh(); } catch (_) {}
-}
-
-
-
-function wireTimezoneUi() {
-  const tzBtn = $('timezoneBtn');
-  if (tzBtn) tzBtn.addEventListener('click', openTimezoneModal);
-  const cancel = $('cancelTimezone');
-  if (cancel) cancel.addEventListener('click', closeTimezoneModal);
-  const save = $('saveTimezone');
-  if (save) save.addEventListener('click', saveTimezonePreference);
-}
 })();
