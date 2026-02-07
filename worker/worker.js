@@ -5,6 +5,7 @@ const https = require('https');
 const net = require('net');
 const { execFile } = require('child_process');
 const { isInMaintenance } = require('./maintenance');
+const { sendSms } = require('./sms');
 
 const pool = new Pool({
   host: process.env.PGHOST || 'postgres',
@@ -152,6 +153,14 @@ async function shouldSendEmail(userId) {
   return rows[0] || null;
 }
 
+async function shouldSendSms(userId) {
+  const { rows } = await pool.query(
+    `SELECT enabled, rules, cooldown_minutes FROM alerts WHERE user_id= AND type='sms' AND enabled=true LIMIT 1`,
+    [userId]
+  );
+  return rows[0] || null;
+}
+
 async function updateAlertEvent(userId, deviceId, eventType) {
   await pool.query(
     `INSERT INTO public.alert_events(user_id, device_id, event_type, last_sent)
@@ -240,6 +249,60 @@ async function maybeSendEmailAlert(device, prevStatus, newStatus) {
   }
 }
 
+
+function isValidE164(v) {
+  return /^\+\d{8,15}$/.test(String(v || '').trim());
+}
+
+function resolveSmsRecipient(rules, storeId) {
+  const r = rules || {};
+  const overrides = (r.storeOverrides && typeof r.storeOverrides === 'object') ? r.storeOverrides : {};
+  const ov = overrides[storeId];
+  if (ov && typeof ov === 'object' && ov.enabled) {
+    const ovTo = String(ov.to || '').trim();
+    if (ovTo) return ovTo;
+  }
+  return String(r.to || '').trim();
+}
+
+async function maybeSendSmsAlert(device, prevStatus, newStatus) {
+  // Suppress alerts during maintenance windows (store or device)
+  if (isInMaintenance(device)) return;
+
+  // Only alert on status change
+  if (prevStatus && prevStatus === newStatus) return;
+
+  // Only on up/down transitions
+  if (!['up', 'down'].includes(newStatus)) return;
+
+  const cfg = await shouldSendSms(device.user_id);
+  if (!cfg) return;
+
+  const rules = cfg.rules || {};
+  const to = resolveSmsRecipient(rules, device.store_id);
+  if (!isValidE164(to)) {
+    console.log(`[ALERT] SMS not sent (invalid or missing recipient). Store=${device.store_id} Device=${device.name}`);
+    return;
+  }
+
+  const eventType = newStatus === 'down' ? 'sms_down' : 'sms_up';
+  const last = await getLastAlertSent(device.user_id, device.id, eventType);
+  if (last) {
+    const minutes = cfg.cooldown_minutes || 30;
+    const ageMs = Date.now() - new Date(last).getTime();
+    if (ageMs < minutes * 60 * 1000) return;
+  }
+
+  const msg = `Dashmon: ${device.name} (${device.store_id}) is ${newStatus.toUpperCase()}`;
+  try {
+    const r = await sendSms({ to, body: msg });
+    await updateAlertEvent(device.user_id, device.id, eventType);
+    console.log(`[ALERT] SMS sent: to=${to} sid=${r.sid || '-'} device=${device.name} status=${newStatus}`);
+  } catch (e) {
+    console.error(`[ALERT] SMS send failed: device=${device.name} store=${device.store_id} err=${e?.message || e}`);
+  }
+}
+
 async function tick() {
   const due = await getDueDevices();
   if (!due.length) return;
@@ -256,6 +319,7 @@ async function tick() {
     // optional email alert on change
     if (newStatus !== prevStatus) {
       await maybeSendEmailAlert(device, prevStatus, newStatus);
+      await maybeSendSmsAlert(device, prevStatus, newStatus);
     }
 
     // light pacing

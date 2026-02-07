@@ -9,6 +9,7 @@ const {
   getUserPlanFromDb
 } = require('./plan-limits');
 const { createMemoryRateLimiter } = require('./rate-limit');
+const { sendSms } = require('./sms');
 
 // Maintenance window helpers
 function parseMaybeTime(v) {
@@ -1199,6 +1200,135 @@ router.put('/api/alerts/email', requireAuth, async (req, res) => {
 });
 
 // --- Metrics for dashboard charts ---
+
+
+// --- SMS Alerts (Premium) ---
+// Stored in alerts table: type='sms'
+function isValidE164(v) {
+  return /^\+\d{8,15}$/.test(String(v || '').trim());
+}
+
+async function getSmsAlertRow(userId) {
+  const { rows } = await pool.query(
+    `SELECT enabled, rules, cooldown_minutes
+     FROM alerts
+     WHERE user_id=$1 AND type='sms'
+     LIMIT 1`,
+    [userId]
+  );
+  return rows[0] || null;
+}
+
+async function upsertSmsAlert(userId, enabled, rulesObj, cooldownMinutes) {
+  // Prefer ON CONFLICT if a unique constraint exists; fallback otherwise.
+  try {
+    await pool.query(
+      `INSERT INTO alerts(user_id, type, enabled, rules, cooldown_minutes)
+       VALUES ($1, 'sms', $2, $3, $4)
+       ON CONFLICT (user_id, type)
+       DO UPDATE SET enabled=EXCLUDED.enabled, rules=EXCLUDED.rules, cooldown_minutes=EXCLUDED.cooldown_minutes`,
+      [userId, enabled, JSON.stringify(rulesObj), cooldownMinutes]
+    );
+    return;
+  } catch (e) {
+    // 42P10 = invalid_column_reference (e.g., no matching unique constraint)
+    if (e && e.code !== '42P10') throw e;
+  }
+
+  // Fallback upsert (no unique constraint)
+  const upd = await pool.query(
+    `UPDATE alerts
+     SET enabled=$3, rules=$4, cooldown_minutes=$5
+     WHERE user_id=$1 AND type=$2`,
+    [userId, 'sms', enabled, JSON.stringify(rulesObj), cooldownMinutes]
+  );
+  if (upd.rowCount === 0) {
+    await pool.query(
+      `INSERT INTO alerts(user_id, type, enabled, rules, cooldown_minutes)
+       VALUES ($1, 'sms', $2, $3, $4)`,
+      [userId, enabled, JSON.stringify(rulesObj), cooldownMinutes]
+    );
+  }
+}
+
+router.get('/api/alerts/sms', requireAuth, requirePremium, async (req, res) => {
+  try {
+    const row = await getSmsAlertRow(req.user.id);
+    const rules = row?.rules || {};
+    res.json({
+      enabled: row ? !!row.enabled : false,
+      to: rules.to || '',
+      cooldownMinutes: row?.cooldown_minutes ?? 30,
+      storeOverrides: rules.storeOverrides || {}
+    });
+  } catch (e) {
+    console.error('GET /api/alerts/sms error:', e);
+    res.status(500).json({ error: 'Failed to load SMS settings' });
+  }
+});
+
+router.put('/api/alerts/sms', requireAuth, requirePremium, async (req, res) => {
+  try {
+    const enabled = !!req.body?.enabled;
+    const to = String(req.body?.to || '').trim();
+    const cooldownMinutesRaw = Number(req.body?.cooldownMinutes ?? 30);
+    const cooldownMinutes = Number.isFinite(cooldownMinutesRaw)
+      ? Math.min(10080, Math.max(1, Math.round(cooldownMinutesRaw)))
+      : 30;
+
+    const storeOverridesIn = (req.body?.storeOverrides && typeof req.body.storeOverrides === 'object')
+      ? req.body.storeOverrides
+      : {};
+
+    // Validate numbers
+    if (enabled && !isValidE164(to)) {
+      return res.status(400).json({ error: 'Global SMS number must be E.164, e.g. +61400111222' });
+    }
+    for (const [storeId, ov] of Object.entries(storeOverridesIn)) {
+      if (!ov || typeof ov !== 'object') continue;
+      const ovEnabled = !!ov.enabled;
+      const ovTo = String(ov.to || '').trim();
+      if (ovEnabled && ovTo && !isValidE164(ovTo)) {
+        return res.status(400).json({ error: `Invalid SMS number for store ${storeId}. Use E.164.` });
+      }
+    }
+
+    const rules = {
+      to,
+      storeOverrides: storeOverridesIn
+    };
+
+    await upsertSmsAlert(req.user.id, enabled, rules, cooldownMinutes);
+
+    res.json({
+      ok: true,
+      enabled,
+      to,
+      cooldownMinutes,
+      storeOverrides: storeOverridesIn
+    });
+  } catch (e) {
+    console.error('PUT /api/alerts/sms error:', e);
+    res.status(500).json({ error: 'Failed to save SMS settings' });
+  }
+});
+
+router.post('/api/alerts/sms/test', requireAuth, requirePremium, async (req, res) => {
+  try {
+    const row = await getSmsAlertRow(req.user.id);
+    const rules = row?.rules || {};
+    const to = String(req.body?.to || rules.to || '').trim();
+    if (!isValidE164(to)) return res.status(400).json({ error: 'SMS number must be E.164, e.g. +61400111222' });
+
+    const message = `Dashmon test SMS (${new Date().toISOString()})`;
+    const r = await sendSms({ to, body: message });
+    res.json({ ok: true, provider: r.provider || 'twilio', sid: r.sid || null, testMode: !!r.testMode });
+  } catch (e) {
+    console.error('POST /api/alerts/sms/test error:', e);
+    res.status(500).json({ error: 'Failed to send test message' });
+  }
+});
+
 router.get('/api/metrics/down-events', requireAuth, async (req, res) => {
   const hours = Math.min(Number(req.query.hours || 24) || 24, 168); // up to 7 days
   try {

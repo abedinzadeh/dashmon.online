@@ -14,7 +14,8 @@
     mainView: (localStorage.getItem('dashmonMainView') || 'projects'),
     soundOn: (localStorage.getItem('downAlertSound') || 'on') === 'on',
     lastDownCount: 0,
-    emailAlert: { enabled: false, cooldownMinutes: 30, to: [] }
+    emailAlert: { enabled: false, cooldownMinutes: 30, to: [] },
+    smsAlert: { enabled: false, cooldownMinutes: 30, to: '', storeOverrides: {} }
   };
 
 
@@ -237,18 +238,25 @@ function ensureLineChart(canvasId, label, points, existing) {
     updateUserInfo();
     return true;
   }
-
   function updateUserInfo() {
     const el = $('userInfo');
     if (el && state.user) {
       el.textContent = state.user.email || 'Logged in';
     }
+
     const badge = $('userPlanBadge');
     if (badge && state.user) {
       badge.textContent = (state.user.plan || 'free').toUpperCase();
       badge.className = 'ml-3 px-2 py-1 rounded-full text-xs font-bold ' +
         (state.user.plan === 'premium' ? 'bg-yellow-600 text-black' : 'bg-gray-700 text-white');
     }
+
+    const smsBtn = $('smsAlertsBtn');
+    if (smsBtn && state.user) {
+      if (state.user.plan === 'premium') smsBtn.classList.remove('hidden');
+      else smsBtn.classList.add('hidden');
+    }
+
     const soundToggle = $('soundToggle');
     if (soundToggle) {
       soundToggle.innerHTML = state.soundOn
@@ -300,6 +308,182 @@ function ensureLineChart(canvasId, label, points, existing) {
     state.emailAlert = payload.alert || { enabled: false, cooldownMinutes: 30, to: [] };
     closeModal('emailAlertsModal');
     alert('Email alert settings saved.');
+  }
+
+
+  // --- SMS Alerts (Premium) ---
+  function isValidE164(v) {
+    return /^\+\d{8,15}$/.test(String(v || '').trim());
+  }
+
+  function normalizeStoreOverrides(obj) {
+    const out = {};
+    if (!obj || typeof obj !== 'object') return out;
+    for (const [k, v] of Object.entries(obj)) {
+      if (!v || typeof v !== 'object') continue;
+      out[k] = {
+        enabled: !!v.enabled,
+        to: String(v.to || '').trim()
+      };
+    }
+    return out;
+  }
+
+  function renderSmsOverridesList() {
+    const wrap = $('smsOverridesList');
+    if (!wrap) return;
+    const overrides = normalizeStoreOverrides(state.smsAlert.storeOverrides);
+
+    const projects = Array.isArray(state.projects) ? state.projects : [];
+    const sorted = [...projects].sort((a, b) => String(a.id).localeCompare(String(b.id)));
+
+    wrap.innerHTML = '';
+    for (const p of sorted) {
+      const storeId = String(p.id);
+      const ov = overrides[storeId] || { enabled: false, to: '' };
+
+      const row = document.createElement('div');
+      row.className = 'flex flex-col sm:flex-row sm:items-center gap-2 p-3 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700';
+      row.innerHTML = `
+        <div class="flex items-center gap-3">
+          <input type="checkbox" class="h-4 w-4 sms-ov-enabled" data-store-id="${escapeHtml(storeId)}" ${ov.enabled ? 'checked' : ''}/>
+          <div class="text-sm font-medium">${escapeHtml(p.name || storeId)} <span class="text-xs text-gray-500">(${escapeHtml(storeId)})</span></div>
+        </div>
+        <div class="flex-1"></div>
+        <input type="text" class="w-full sm:w-64 p-2 border rounded-lg dark:bg-gray-900 dark:border-gray-600 text-gray-900 dark:text-gray-100 sms-ov-to" data-store-id="${escapeHtml(storeId)}" placeholder="+61400111222" value="${escapeHtml(ov.to || '')}"/>
+      `;
+      wrap.appendChild(row);
+    }
+  }
+
+  async function loadSmsAlertConfig() {
+    const res = await apiFetch('/api/alerts/sms');
+    if (!res.ok) {
+      const msg = (await res.json().catch(() => null))?.error || `Failed (${res.status})`;
+      throw new Error(msg);
+    }
+    const payload = await res.json();
+    state.smsAlert = {
+      enabled: !!payload.enabled,
+      to: String(payload.to || '').trim(),
+      cooldownMinutes: Number(payload.cooldownMinutes || 30),
+      storeOverrides: normalizeStoreOverrides(payload.storeOverrides)
+    };
+
+    if ($('smsAlertsEnabled')) $('smsAlertsEnabled').checked = !!state.smsAlert.enabled;
+    if ($('smsAlertsCooldown')) $('smsAlertsCooldown').value = Number(state.smsAlert.cooldownMinutes || 30);
+    if ($('smsAlertsTo')) $('smsAlertsTo').value = state.smsAlert.to || '';
+
+    renderSmsOverridesList();
+  }
+
+  async function openSmsAlertsModal() {
+    if (state.user?.plan !== 'premium') {
+      alert('SMS Alerts are Premium only.');
+      return;
+    }
+    try {
+      await loadSmsAlertConfig();
+      openModal('smsAlertsModal');
+    } catch (e) {
+      alert(e?.message || 'Failed to load SMS settings');
+    }
+  }
+
+  function collectSmsOverridesFromUi() {
+    const enabledEls = Array.from(document.querySelectorAll('.sms-ov-enabled'));
+    const toEls = Array.from(document.querySelectorAll('.sms-ov-to'));
+
+    const toByStore = {};
+    for (const el of toEls) {
+      const sid = el.getAttribute('data-store-id');
+      if (!sid) continue;
+      toByStore[sid] = String(el.value || '').trim();
+    }
+
+    const out = {};
+    for (const el of enabledEls) {
+      const sid = el.getAttribute('data-store-id');
+      if (!sid) continue;
+      const enabled = !!el.checked;
+      const to = String(toByStore[sid] || '').trim();
+      out[sid] = { enabled, to };
+    }
+    return out;
+  }
+
+  async function saveSmsAlerts(e) {
+    e.preventDefault();
+    if (state.user?.plan !== 'premium') {
+      alert('SMS Alerts are Premium only.');
+      return;
+    }
+
+    const enabled = !!$('smsAlertsEnabled')?.checked;
+    const cooldownMinutes = Number($('smsAlertsCooldown')?.value || 30);
+    const to = String($('smsAlertsTo')?.value || '').trim();
+    const storeOverrides = collectSmsOverridesFromUi();
+
+    if (enabled && !isValidE164(to)) {
+      alert('Global SMS number must be E.164, e.g. +61400111222');
+      return;
+    }
+
+    for (const [storeId, ov] of Object.entries(storeOverrides)) {
+      if (!ov || typeof ov !== 'object') continue;
+      if (ov.enabled && ov.to && !isValidE164(ov.to)) {
+        alert(`Invalid SMS number for store ${storeId}. Use E.164.`);
+        return;
+      }
+    }
+
+    const res = await apiFetch('/api/alerts/sms', {
+      method: 'PUT',
+      body: { enabled, to, cooldownMinutes, storeOverrides }
+    });
+
+    if (!res.ok) {
+      const msg = (await res.json().catch(() => null))?.error || `Failed (${res.status})`;
+      alert(msg);
+      return;
+    }
+
+    const payload = await res.json();
+    state.smsAlert = {
+      enabled: !!payload.enabled,
+      to: String(payload.to || '').trim(),
+      cooldownMinutes: Number(payload.cooldownMinutes || 30),
+      storeOverrides: normalizeStoreOverrides(payload.storeOverrides)
+    };
+
+    closeModal('smsAlertsModal');
+    alert('SMS alert settings saved.');
+  }
+
+  async function sendSmsTest() {
+    if (state.user?.plan !== 'premium') {
+      alert('SMS Alerts are Premium only.');
+      return;
+    }
+    const to = String($('smsAlertsTo')?.value || '').trim();
+    if (!isValidE164(to)) {
+      alert('SMS number must be E.164, e.g. +61400111222');
+      return;
+    }
+
+    const res = await apiFetch('/api/alerts/sms/test', {
+      method: 'POST',
+      body: { to }
+    });
+
+    if (!res.ok) {
+      const msg = (await res.json().catch(() => null))?.error || `Failed (${res.status})`;
+      alert(msg);
+      return;
+    }
+
+    const payload = await res.json();
+    alert(`Test SMS sent. Provider=${payload.provider || 'twilio'}${payload.testMode ? ' (test mode)' : ''}`);
   }
 
   const scrollLock = typeof createScrollLock === 'function' ? createScrollLock(window, document) : null;
@@ -1036,6 +1220,12 @@ function toggleDownAlertSound() {
     $('closeEmailAlertsModal')?.addEventListener('click', () => closeModal('emailAlertsModal'));
     $('cancelEmailAlerts')?.addEventListener('click', () => closeModal('emailAlertsModal'));
     $('emailAlertsForm')?.addEventListener('submit', saveEmailAlerts);
+
+    $('smsAlertsBtn')?.addEventListener('click', openSmsAlertsModal);
+    $('closeSmsAlertsModal')?.addEventListener('click', () => closeModal('smsAlertsModal'));
+    $('cancelSmsAlerts')?.addEventListener('click', () => closeModal('smsAlertsModal'));
+    $('smsAlertsForm')?.addEventListener('submit', saveSmsAlerts);
+    $('smsTestBtn')?.addEventListener('click', sendSmsTest);
 
     $('totalDevicesCard')?.addEventListener('click', () => openSummaryDevicesModal('all'));
     $('upDevicesCard')?.addEventListener('click', () => openSummaryDevicesModal('up'));

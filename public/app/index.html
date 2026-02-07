@@ -380,6 +380,10 @@
 <button class="bg-indigo-600 hover:bg-indigo-700 px-4 py-2 rounded-lg font-medium" id="emailAlertsBtn">
 <i class="fas fa-envelope mr-2"></i> Email Alerts
             </button>
+
+          <button id="smsAlertsBtn" class="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 hidden">
+            <i class="fas fa-sms mr-2"></i>SMS Alerts
+          </button>
 <button class="p-2 rounded-full bg-gray-800 hover:bg-gray-700" id="tvModeToggle">
 <i class="fas fa-tv mr-1"></i> TV Mode
             </button>
@@ -832,6 +836,50 @@
 </div>
 </div>
 
+
+
+
+<!-- SMS Alerts Modal (Premium) -->
+<div class="modal-overlay" id="smsAlertsModal">
+  <div class="modal-content dark:bg-gray-900">
+    <div class="flex justify-between items-center mb-6">
+      <h2 class="text-2xl font-bold">SMS Alerts <span class="ml-2 text-xs px-2 py-1 rounded-full bg-yellow-600 text-black font-bold">PREMIUM</span></h2>
+      <button class="text-gray-500 hover:text-gray-700 text-2xl" id="closeSmsAlertsModal">×</button>
+    </div>
+
+    <form id="smsAlertsForm" class="space-y-4">
+      <div class="flex items-center justify-between">
+        <label class="font-medium">Enable SMS Alerts</label>
+        <input id="smsAlertsEnabled" type="checkbox" class="h-4 w-4"/>
+      </div>
+
+      <div>
+        <label class="font-medium">SMS Number (E.164)</label>
+        <input id="smsAlertsTo" type="text" class="w-full p-3 border rounded-lg dark:bg-gray-800 dark:border-gray-700 text-gray-900 dark:text-gray-100" placeholder="+61400111222"/>
+        <p class="text-xs text-gray-500 mt-1">Example: +61400111222 (no spaces)</p>
+      </div>
+
+      <div>
+        <label class="font-medium">Cooldown (minutes)</label>
+        <input id="smsAlertsCooldown" type="number" min="1" max="10080" value="30" class="w-full p-3 border rounded-lg dark:bg-gray-800 dark:border-gray-700 text-gray-900 dark:text-gray-100"/>
+      </div>
+
+      <div class="border-t pt-4">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="font-semibold">Per-Project Overrides</h3>
+          <button type="button" id="smsTestBtn" class="px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">Send Test</button>
+        </div>
+        <div class="text-sm text-gray-500 mb-3">Enable per project and optionally override the number for that project.</div>
+        <div id="smsOverridesList" class="space-y-2"></div>
+      </div>
+
+      <div class="flex justify-end gap-3 pt-4">
+        <button type="button" id="cancelSmsAlerts" class="px-4 py-2 border rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800">Cancel</button>
+        <button type="submit" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">Save SMS Settings</button>
+      </div>
+    </form>
+  </div>
+</div>
 
 <!-- Timezone Modal -->
 <div id="timezoneModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
