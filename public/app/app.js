@@ -195,7 +195,11 @@ function ensureLineChart(canvasId, label, points, existing) {
     const data = await res.json();
     const hist = data.history || [];
     const labels = hist.map(h => '');
-    const values = hist.map(h => ((h.status && String(h.status).toLowerCase() !== 'up') ? null : (h.latency_ms == null ? null : Number(h.latency_ms))));
+    const values = hist.map(h => {
+      const st = String(h.status || '').toLowerCase();
+      if (st && st !== 'up') return 0; // make DOWN clearly visible in the tiny chart
+      return (h.latency_ms == null ? null : Number(h.latency_ms));
+    });
 
     const cfg = {
       type: 'line',
@@ -1058,7 +1062,11 @@ function renderProjects() {
         const hdata = await hr.json();
         const hist = hdata.history || [];
         // Modal chart: latency
-        const pts = hist.map(x => ({ ts: x.ts, value: x.latency_ms == null ? 0 : Number(x.latency_ms) }));
+        const pts = hist.map(x => {
+          const st = String(x.status || '').toLowerCase();
+          if (st && st !== 'up') return { ts: x.ts, value: 0 };
+          return { ts: x.ts, value: (x.latency_ms == null ? null : Number(x.latency_ms)) };
+        });
         state.charts.deviceModal = ensureLineChart('deviceDetailsChart', 'Latency ms', pts, state.charts.deviceModal);
 
         const listEl = $('deviceDetailsHistory');
@@ -1066,7 +1074,14 @@ function renderProjects() {
           listEl.innerHTML = hist.slice(-30).reverse().map(x => {
             const t = new Date(x.ts).toLocaleString();
             const s = String(x.status || '').toUpperCase();
-            const l = (x.latency_ms == null ? '-' : x.latency_ms + 'ms');
+            const stLower = String(x.status || '').toLowerCase();
+            let l;
+            if (stLower && stLower !== 'up') {
+              const det = x.detail || {};
+              l = det.timeout ? 'timeout' : '-';
+            } else {
+              l = (x.latency_ms == null ? '-' : x.latency_ms + 'ms');
+            }
             return `<div class="flex justify-between gap-3 py-1 border-b border-white/5"><span>${t}</span><span>${s}</span><span>${l}</span></div>`;
           }).join('') || '<div class="text-gray-400">No history yet.</div>';
         }

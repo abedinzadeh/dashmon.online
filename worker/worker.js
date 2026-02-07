@@ -155,7 +155,7 @@ async function shouldSendEmail(userId) {
 
 async function shouldSendSms(userId) {
   const { rows } = await pool.query(
-    `SELECT enabled, rules, cooldown_minutes FROM alerts WHERE user_id= AND type='sms' AND enabled=true LIMIT 1`,
+    `SELECT enabled, rules, cooldown_minutes FROM alerts WHERE user_id=$1 AND type='sms' AND enabled=true LIMIT 1`,
     [userId]
   );
   return rows[0] || null;
@@ -313,10 +313,21 @@ async function tick() {
     const result = await executeDeviceCheck(device);
     const newStatus = result.status || 'down';
 
-    await updateDevice(device.id, device.user_id, newStatus, result.packet_loss);
-    await writeHistory(device.id, newStatus, result.packet_loss, result.latency, result.detail);
+    // IMPORTANT:
+    // If the check failed, we do NOT want to store a "fake" latency (timeout duration).
+    // This was making the sparkline/history look like the device responded with high latency.
+    let latency = (result.latency == null ? null : Number(result.latency));
+    let detail = result.detail || {};
+    if (String(newStatus).toLowerCase() !== 'up') {
+      if (latency != null && Number.isFinite(latency)) {
+        detail = Object.assign({}, detail, { attempt_ms: latency });
+      }
+      latency = null;
+    }
 
-    // optional email alert on change
+    await updateDevice(device.id, device.user_id, newStatus, result.packet_loss);
+    await writeHistory(device.id, newStatus, result.packet_loss, latency, detail);
+// optional email alert on change
     if (newStatus !== prevStatus) {
       await maybeSendEmailAlert(device, prevStatus, newStatus);
       await maybeSendSmsAlert(device, prevStatus, newStatus);
