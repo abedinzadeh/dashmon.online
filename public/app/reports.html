@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashmon - Reports</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="./ui.css" />
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+  <div class="max-w-6xl mx-auto px-4 py-6">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <a href="/app/" class="text-slate-300 hover:text-white font-medium">
+        <i class="fas fa-arrow-left mr-2"></i>Back to Dashboard
+      </a>
+      <div class="flex flex-wrap items-center gap-3">
+        <span id="userPlanBadge" class="badge">FREE</span>
+        <button id="logoutBtn" class="btn btn-danger">
+          <i class="fas fa-sign-out-alt mr-2"></i>Logout
+        </button>
+      </div>
+    </div>
+
+    <div class="mt-6 card">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 class="text-2xl font-extrabold">Uptime reports</h1>
+          <div class="text-slate-400 text-sm mt-1">Premium • Weekly / Monthly uptime summary across projects and devices.</div>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <div class="inline-flex rounded-xl border border-white/10 overflow-hidden">
+            <button class="reportPeriod px-3 py-2 text-sm font-semibold hover:bg-white/5" data-period="weekly">Weekly</button>
+            <button class="reportPeriod px-3 py-2 text-sm font-semibold hover:bg-white/5" data-period="monthly">Monthly</button>
+          </div>
+          <button id="exportCsvBtn" class="btn btn-secondary">
+            <i class="fas fa-file-csv mr-2"></i>Export CSV
+          </button>
+        </div>
+      </div>
+
+      <div id="upgradeHint" class="mt-4 text-amber-200/90 hidden">Reports are Premium-only. Upgrade to enable.</div>
+
+      <div id="loading" class="mt-6 grid gap-3 hidden">
+        <div class="h-20 rounded-2xl bg-white/5 animate-pulse"></div>
+        <div class="h-72 rounded-2xl bg-white/5 animate-pulse"></div>
+      </div>
+
+      <div id="empty" class="mt-6 text-slate-400 hidden">No data available yet.</div>
+
+      <div id="content" class="mt-6 hidden">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
+            <div class="text-xs text-slate-400">Overall uptime</div>
+            <div id="overallUptime" class="text-2xl font-extrabold">–</div>
+          </div>
+          <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
+            <div class="text-xs text-slate-400">Projects</div>
+            <div id="overallProjects" class="text-2xl font-extrabold">–</div>
+          </div>
+          <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
+            <div class="text-xs text-slate-400">Devices</div>
+            <div id="overallDevices" class="text-2xl font-extrabold">–</div>
+          </div>
+        </div>
+
+        <div class="mt-6 overflow-hidden rounded-2xl border border-white/10">
+          <div class="px-4 py-3 bg-white/5 border-b border-white/10 text-sm font-semibold">Projects</div>
+          <div class="overflow-auto">
+            <table class="min-w-full text-sm">
+              <thead class="bg-black/30 text-slate-300">
+                <tr>
+                  <th class="text-left px-4 py-3">Project</th>
+                  <th class="text-left px-4 py-3">Uptime</th>
+                  <th class="text-left px-4 py-3">Devices</th>
+                </tr>
+              </thead>
+              <tbody id="projectsTable" class="divide-y divide-white/10"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="mt-6 overflow-hidden rounded-2xl border border-white/10">
+          <div class="px-4 py-3 bg-white/5 border-b border-white/10 text-sm font-semibold">Devices</div>
+          <div class="overflow-auto">
+            <table class="min-w-full text-sm">
+              <thead class="bg-black/30 text-slate-300">
+                <tr>
+                  <th class="text-left px-4 py-3">Project</th>
+                  <th class="text-left px-4 py-3">Device</th>
+                  <th class="text-left px-4 py-3">Type</th>
+                  <th class="text-left px-4 py-3">Uptime</th>
+                  <th class="text-left px-4 py-3">Avg response</th>
+                </tr>
+              </thead>
+              <tbody id="devicesTable" class="divide-y divide-white/10"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const apiFetch = (url, opts = {}) => fetch(url, {
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+      ...opts,
+      body: opts.body ? JSON.stringify(opts.body) : undefined
+    });
+
+    function setPeriodActive(period) {
+      document.querySelectorAll('.reportPeriod').forEach((b) => {
+        const p = b.getAttribute('data-period');
+        if (p === period) b.classList.add('bg-white/10'); else b.classList.remove('bg-white/10');
+      });
+    }
+
+    function fmtPct(v) {
+      if (v == null || !Number.isFinite(Number(v))) return '–';
+      return Number(v).toFixed(1) + '%';
+    }
+    function fmtMs(v) {
+      if (v == null || !Number.isFinite(Number(v))) return '–';
+      return Math.round(Number(v)) + 'ms';
+    }
+
+    async function checkAuth() {
+      const r = await apiFetch('/api/me', { redirect: 'manual' });
+      if (!r.ok) { location.href = '/login.html'; return null; }
+      const me = await r.json();
+      $('userPlanBadge').textContent = (me.plan || 'free').toUpperCase();
+      $('userPlanBadge').className = 'badge ' + (me.plan === 'premium' ? 'badge-premium' : 'badge-free');
+      return me;
+    }
+
+    async function logout() {
+      await fetch('/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
+      location.href = '/login.html';
+    }
+
+    let currentPeriod = 'weekly';
+
+    async function loadReport(period) {
+      currentPeriod = period;
+      setPeriodActive(period);
+
+      $('upgradeHint').classList.add('hidden');
+      $('content').classList.add('hidden');
+      $('empty').classList.add('hidden');
+      $('loading').classList.remove('hidden');
+
+      const r = await apiFetch(`/api/reports/uptime?period=${encodeURIComponent(period)}`);
+      $('loading').classList.add('hidden');
+
+      if (r.status === 403) {
+        $('upgradeHint').classList.remove('hidden');
+        return;
+      }
+      if (!r.ok) {
+        $('empty').textContent = 'Failed to load report.';
+        $('empty').classList.remove('hidden');
+        return;
+      }
+
+      const data = await r.json();
+      if (!data || !data.projects) {
+        $('empty').classList.remove('hidden');
+        return;
+      }
+
+      $('overallUptime').textContent = fmtPct(data.summary?.uptime_pct);
+      $('overallProjects').textContent = String(data.summary?.projects ?? 0);
+      $('overallDevices').textContent = String(data.summary?.devices ?? 0);
+
+      const projBody = $('projectsTable');
+      projBody.innerHTML = '';
+      for (const p of data.projects) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="px-4 py-3 font-semibold">${(p.name || p.id)}</td>
+          <td class="px-4 py-3">${fmtPct(p.uptime_pct)}</td>
+          <td class="px-4 py-3">${(p.devices || []).length}</td>
+        `;
+        projBody.appendChild(tr);
+      }
+
+      const devBody = $('devicesTable');
+      devBody.innerHTML = '';
+      for (const p of data.projects) {
+        for (const d of (p.devices || [])) {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td class="px-4 py-3 text-slate-300">${(p.name || p.id)}</td>
+            <td class="px-4 py-3 font-semibold">${(d.name || d.id)}</td>
+            <td class="px-4 py-3 text-slate-300">${(d.type || '')}</td>
+            <td class="px-4 py-3">${fmtPct(d.uptime_pct)}</td>
+            <td class="px-4 py-3">${fmtMs(d.avg_response_ms)}</td>
+          `;
+          devBody.appendChild(tr);
+        }
+      }
+
+      $('content').classList.remove('hidden');
+    }
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      const me = await checkAuth();
+      if (!me) return;
+      $('logoutBtn').addEventListener('click', logout);
+
+      document.querySelectorAll('.reportPeriod').forEach((b) => {
+        b.addEventListener('click', () => loadReport(b.getAttribute('data-period') || 'weekly'));
+      });
+
+      $('exportCsvBtn').addEventListener('click', () => {
+        // Server will set Content-Disposition to download
+        window.location.href = `/api/reports/uptime?period=${encodeURIComponent(currentPeriod)}&format=csv`;
+      });
+
+      await loadReport('weekly');
+    });
+  </script>
+</body>
+</html>

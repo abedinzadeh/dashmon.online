@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const requirePremium = require('../require-premium');
+const { requirePremium } = require('../require-premium');
 
 function createRes() {
   return {
@@ -45,7 +45,7 @@ test('Maintenance endpoints are guarded by requirePremium in routes', () => {
 });
 
 test('Maintenance: Free users get 403 (premium_required)', async () => {
-  const req = { user: { plan: 'free' }, headers: { accept: 'application/json' } };
+  const req = { user: { plan: 'free' }, headers: { accept: 'application/json' }, path: '/api/maintenance/store/1' };
   const res = createRes();
   let nextCalled = false;
 
@@ -57,7 +57,7 @@ test('Maintenance: Free users get 403 (premium_required)', async () => {
 });
 
 test('Maintenance: Premium users pass middleware', async () => {
-  const req = { user: { plan: 'premium' }, headers: { accept: 'application/json' } };
+  const req = { user: { plan: 'premium' }, headers: { accept: 'application/json' }, path: '/api/maintenance/store/1' };
   const res = createRes();
   let nextCalled = false;
 

@@ -1,7 +1,7 @@
 const express = require('express');
 const { pool } = require('./db');
 const { requireAuth, passport } = require('./auth');
-const requirePremium = require('./require-premium');
+const { requirePremium } = require('./require-premium');
 const bcrypt = require('bcryptjs');
 const {
   getPlanLimits: resolvePlanLimits,
@@ -24,6 +24,60 @@ function isNowInMaintenanceWindow(now, start, end) {
   const e = new Date(end);
   if (Number.isNaN(e.getTime())) return now >= s;
   return now >= s && now <= e;
+}
+
+// --- Premium analytics helpers ---
+function normalizeRangeToInterval(range) {
+  const r = String(range || '').trim().toLowerCase();
+  if (r === '24h' || r === '1d' || r === 'day') return { key: '24h', intervalSql: "interval '24 hours'" };
+  if (r === '30d' || r === 'month') return { key: '30d', intervalSql: "interval '30 days'" };
+  // default 7d
+  return { key: '7d', intervalSql: "interval '7 days'" };
+}
+
+function computeAnalyticsFromHistory(historyAsc) {
+  const rows = Array.isArray(historyAsc) ? historyAsc : [];
+  const totalSamples = rows.length;
+  let upSamples = 0;
+  let latencySum = 0;
+  let latencyCount = 0;
+  let incidents = 0;
+  let downtimeMs = 0;
+
+  for (let i = 0; i < rows.length; i++) {
+    const cur = rows[i];
+    const status = String(cur.status || '').toLowerCase();
+    if (status === 'up') upSamples++;
+    const lat = Number(cur.latency_ms);
+    if (status === 'up' && Number.isFinite(lat)) {
+      latencySum += lat;
+      latencyCount += 1;
+    }
+
+    if (i > 0) {
+      const prev = rows[i - 1];
+      const prevStatus = String(prev.status || '').toLowerCase();
+      if (prevStatus !== 'down' && status === 'down') incidents++;
+
+      const prevTs = new Date(prev.ts);
+      const curTs = new Date(cur.ts);
+      const dt = curTs.getTime() - prevTs.getTime();
+      if (Number.isFinite(dt) && dt > 0 && status === 'down') {
+        downtimeMs += dt;
+      }
+    }
+  }
+
+  const uptimePct = totalSamples ? (upSamples / totalSamples) * 100 : null;
+  const avgLatency = latencyCount ? latencySum / latencyCount : null;
+
+  return {
+    samples: totalSamples,
+    uptime_pct: uptimePct,
+    avg_response_ms: avgLatency,
+    incident_count: incidents,
+    downtime_minutes: Math.round(downtimeMs / 60000)
+  };
 }
 
 const router = express.Router();
@@ -232,12 +286,8 @@ router.get('/logout', (_req, res) => res.redirect('/login.html'));
 // --- Projects (formerly "stores") ---
 // NOTE: We keep DB table name "stores" but UI uses "projects".
 async function getProjectsWithDevices(userId) {
-  // Include maintenance window columns so frontend can render project maintenance state
-  // and so we can correctly compute device maintenance suppression from store maintenance.
   const { rows: projects } = await pool.query(
-    `SELECT id, name, location, notes,
-            maintenance_start, maintenance_end,
-            created_at, updated_at
+    `SELECT id, name, location, notes, created_at, updated_at
      FROM stores
      WHERE user_id = $1
      ORDER BY created_at DESC`,
@@ -470,9 +520,7 @@ router.get('/api/projects/:projectId', requireAuth, async (req, res) => {
   const projectId = req.params.projectId;
   try {
     const { rows } = await pool.query(
-      `SELECT id, name, location, notes,
-              maintenance_start, maintenance_end,
-              created_at, updated_at
+      `SELECT id, name, location, notes, created_at, updated_at
        FROM stores
        WHERE user_id=$1 AND id=$2`,
       [req.user.id, projectId]
@@ -496,9 +544,7 @@ router.put('/api/projects/:projectId', requireAuth, async (req, res) => {
       `UPDATE stores
          SET name=$3, location=$4, notes=$5, updated_at=NOW()
        WHERE user_id=$1 AND id=$2
-       RETURNING id, name, location, notes,
-                 maintenance_start, maintenance_end,
-                 created_at, updated_at`,
+       RETURNING id, name, location, notes, created_at, updated_at`,
       [req.user.id, projectId, name, location || null, notes || null]
     );
     if (!rows.length) return res.status(404).json({ error: 'Project not found' });
@@ -739,30 +785,11 @@ router.post('/api/devices/:deviceId/test-now', requireAuth, requirePremium, asyn
 // --- Device history (for graphs) ---
 router.get('/api/devices/:deviceId/history', requireAuth, async (req, res) => {
   const { deviceId } = req.params;
-
-  // limit: max number of returned points (capped to protect DB)
   const requestedLimit = Number(req.query.limit || 60);
   if (!Number.isFinite(requestedLimit) || requestedLimit < 1) {
     return res.status(400).json({ error: 'limit must be a positive number' });
   }
   const limit = Math.min(Math.floor(requestedLimit), 500);
-
-  // range: optional time window filter for charts
-  // Allowed values: 24h / 7d / 30d
-  const range = String(req.query.range || '').trim();
-  let startTs = null;
-  if (range) {
-    const now = Date.now();
-    const map = {
-      '24h': 24 * 60 * 60 * 1000,
-      '7d': 7 * 24 * 60 * 60 * 1000,
-      '30d': 30 * 24 * 60 * 60 * 1000
-    };
-    if (!Object.prototype.hasOwnProperty.call(map, range)) {
-      return res.status(400).json({ error: 'range must be one of 24h,7d,30d' });
-    }
-    startTs = new Date(now - map[range]).toISOString();
-  }
 
   try {
     // Ownership enforced by join on devices.user_id
@@ -774,57 +801,256 @@ router.get('/api/devices/:deviceId/history', requireAuth, async (req, res) => {
 
     let historyRows;
     try {
-      if (startTs) {
-        const { rows } = await pool.query(
-          `SELECT ts, status, latency_ms, status_code, detail
-           FROM device_history
-           WHERE device_id=$1 AND ts >= $2
-           ORDER BY ts DESC
-           LIMIT $3`,
-          [deviceId, startTs, limit]
-        );
-        historyRows = rows;
-      } else {
-        const { rows } = await pool.query(
-          `SELECT ts, status, latency_ms, status_code, detail
-           FROM device_history
-           WHERE device_id=$1
-           ORDER BY ts DESC
-           LIMIT $2`,
-          [deviceId, limit]
-        );
-        historyRows = rows;
-      }
+      const { rows } = await pool.query(
+        `SELECT ts, status, latency_ms, status_code, detail
+         FROM device_history
+         WHERE device_id=$1
+         ORDER BY ts DESC
+         LIMIT $2`,
+        [deviceId, limit]
+      );
+      historyRows = rows;
     } catch (historyErr) {
       if (historyErr && historyErr.code !== '42703') throw historyErr;
 
-      if (startTs) {
-        const { rows } = await pool.query(
-          `SELECT timestamp AS ts, status, latency AS latency_ms, NULL::int AS status_code, detail
-           FROM device_history
-           WHERE device_id=$1 AND timestamp >= $2
-           ORDER BY timestamp DESC
-           LIMIT $3`,
-          [deviceId, startTs, limit]
-        );
-        historyRows = rows;
-      } else {
-        const { rows } = await pool.query(
-          `SELECT timestamp AS ts, status, latency AS latency_ms, NULL::int AS status_code, detail
-           FROM device_history
-           WHERE device_id=$1
-           ORDER BY timestamp DESC
-           LIMIT $2`,
-          [deviceId, limit]
-        );
-        historyRows = rows;
-      }
+      const { rows } = await pool.query(
+        `SELECT timestamp AS ts, status, latency AS latency_ms, NULL::int AS status_code, detail
+         FROM device_history
+         WHERE device_id=$1
+         ORDER BY timestamp DESC
+         LIMIT $2`,
+        [deviceId, limit]
+      );
+      historyRows = rows;
     }
 
     res.json({ history: historyRows.reverse() }); // oldest->newest for charts
   } catch (e) {
     console.error('Error fetching device history:', e);
     res.status(500).json({ error: 'Failed to fetch device history' });
+  }
+});
+
+// --- Advanced device analytics (Premium) ---
+router.get('/api/devices/:deviceId/analytics', requireAuth, requirePremium, async (req, res) => {
+  const { deviceId } = req.params;
+  const { key, intervalSql } = normalizeRangeToInterval(req.query.range);
+
+  try {
+    const { rows: deviceRows } = await pool.query('SELECT id FROM devices WHERE id=$1 AND user_id=$2', [
+      deviceId,
+      req.user.id
+    ]);
+    if (!deviceRows.length) return res.status(404).json({ error: 'Device not found' });
+
+    // Pull enough samples for accurate downtime calculations.
+    let historyAsc;
+    try {
+      const { rows } = await pool.query(
+        `SELECT ts, status, latency_ms
+         FROM device_history
+         WHERE device_id=$1 AND ts >= now() - ${intervalSql}
+         ORDER BY ts ASC`,
+        [deviceId]
+      );
+      historyAsc = rows;
+    } catch (historyErr) {
+      if (historyErr && historyErr.code !== '42703') throw historyErr;
+      const { rows } = await pool.query(
+        `SELECT timestamp AS ts, status, latency AS latency_ms
+         FROM device_history
+         WHERE device_id=$1 AND timestamp >= now() - ${intervalSql}
+         ORDER BY timestamp ASC`,
+        [deviceId]
+      );
+      historyAsc = rows;
+    }
+
+    const analytics = computeAnalyticsFromHistory(historyAsc);
+    res.json({
+      deviceId,
+      range: key,
+      analytics
+    });
+  } catch (e) {
+    console.error('Error fetching device analytics:', e);
+    res.status(500).json({ error: 'Failed to fetch device analytics' });
+  }
+});
+
+// --- Time-based uptime reports (Premium) ---
+// Dashmon uses "stores" as the top-level container (devices.store_id -> stores.id).
+router.get('/api/reports/uptime', requireAuth, requirePremium, async (req, res) => {
+  const periodRaw = String(req.query.period || 'weekly').trim().toLowerCase();
+  const period = periodRaw === 'monthly' ? 'monthly' : 'weekly';
+  const intervalSql = period === 'monthly' ? "interval '30 days'" : "interval '7 days'";
+  const format = String(req.query.format || 'json').trim().toLowerCase();
+
+  try {
+    const { rows: storeRows } = await pool.query(
+      'SELECT id, name FROM stores WHERE user_id=$1 ORDER BY created_at ASC',
+      [req.user.id]
+    );
+
+    const { rows: deviceRows } = await pool.query(
+      'SELECT id, store_id, name, type, url, ip FROM devices WHERE user_id=$1',
+      [req.user.id]
+    );
+
+    const deviceById = new Map(deviceRows.map((d) => [d.id, d]));
+    const devicesByStore = new Map();
+    for (const d of deviceRows) {
+      const sid = d.store_id;
+      if (!devicesByStore.has(sid)) devicesByStore.set(sid, []);
+      devicesByStore.get(sid).push(d.id);
+    }
+
+    const deviceIds = deviceRows.map((d) => d.id);
+    const aggregates = new Map();
+
+    if (deviceIds.length) {
+      // Aggregate samples in SQL for performance.
+      const placeholders = deviceIds.map((_, i) => `$${i + 2}`).join(',');
+      const baseParams = [req.user.id, ...deviceIds];
+
+      const tryQueries = [
+        {
+          sql: `
+            SELECT d.store_id AS store_id,
+                   h.device_id,
+                   COUNT(*)::int AS samples,
+                   SUM(CASE WHEN lower(h.status)='up' THEN 1 ELSE 0 END)::int AS up_samples,
+                   AVG(CASE WHEN lower(h.status)='up' THEN h.latency_ms ELSE NULL END) AS avg_latency_ms
+            FROM device_history h
+            JOIN devices d ON d.id = h.device_id
+            WHERE d.user_id=$1
+              AND h.device_id IN (${placeholders})
+              AND h.ts >= now() - ${intervalSql}
+            GROUP BY d.store_id, h.device_id
+          `
+        },
+        {
+          sql: `
+            SELECT d.store_id AS store_id,
+                   h.device_id,
+                   COUNT(*)::int AS samples,
+                   SUM(CASE WHEN lower(h.status)='up' THEN 1 ELSE 0 END)::int AS up_samples,
+                   AVG(CASE WHEN lower(h.status)='up' THEN h.latency ELSE NULL END) AS avg_latency_ms
+            FROM device_history h
+            JOIN devices d ON d.id = h.device_id
+            WHERE d.user_id=$1
+              AND h.device_id IN (${placeholders})
+              AND h.timestamp >= now() - ${intervalSql}
+            GROUP BY d.store_id, h.device_id
+          `
+        }
+      ];
+
+      let rows;
+      try {
+        rows = (await pool.query(tryQueries[0].sql, baseParams)).rows;
+      } catch (err) {
+        if (!(err && err.code === '42703')) throw err;
+        rows = (await pool.query(tryQueries[1].sql, baseParams)).rows;
+      }
+
+      for (const r of rows) {
+        aggregates.set(r.device_id, {
+          store_id: r.store_id,
+          samples: Number(r.samples) || 0,
+          up_samples: Number(r.up_samples) || 0,
+          avg_latency_ms: r.avg_latency_ms == null ? null : Number(r.avg_latency_ms)
+        });
+      }
+    }
+
+    const stores = storeRows.map((s) => {
+      const ids = devicesByStore.get(s.id) || [];
+      const devices = ids.map((id) => {
+        const d = deviceById.get(id);
+        const a = aggregates.get(id) || { samples: 0, up_samples: 0, avg_latency_ms: null };
+        const uptimePct = a.samples ? (a.up_samples / a.samples) * 100 : null;
+        return {
+          id,
+          name: d?.name || id,
+          type: d?.type || null,
+          url: d?.url || null,
+          ip: d?.ip || null,
+          samples: a.samples,
+          uptime_pct: uptimePct,
+          avg_response_ms: a.avg_latency_ms
+        };
+      });
+
+      const totalSamples = devices.reduce((sum, d) => sum + (d.samples || 0), 0);
+      const totalUp = devices.reduce((sum, d) => sum + Math.round(((d.uptime_pct ?? 0) / 100) * (d.samples || 0)), 0);
+      const uptimePct = totalSamples ? (totalUp / totalSamples) * 100 : null;
+
+      return {
+        id: s.id,
+        name: s.name,
+        uptime_pct: uptimePct,
+        devices
+      };
+    });
+
+    const allSamples = stores.reduce(
+      (sum, s) => sum + s.devices.reduce((t, d) => t + (d.samples || 0), 0),
+      0
+    );
+    const allUp = stores.reduce(
+      (sum, s) =>
+        sum +
+        s.devices.reduce((t, d) => t + Math.round(((d.uptime_pct ?? 0) / 100) * (d.samples || 0)), 0),
+      0
+    );
+
+    const payload = {
+      period,
+      generated_at: new Date().toISOString(),
+      summary: {
+        uptime_pct: allSamples ? (allUp / allSamples) * 100 : null,
+        projects: stores.length,
+        devices: deviceRows.length
+      },
+      projects: stores
+    };
+
+    if (format === 'csv') {
+      const header = 'project_id,project_name,device_id,device_name,type,ip,url,samples,uptime_pct,avg_response_ms\n';
+      const lines = [];
+      for (const p of payload.projects) {
+        for (const d of p.devices) {
+          const esc = (v) => {
+            const s = v == null ? '' : String(v);
+            if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+            return s;
+          };
+          lines.push(
+            [
+              esc(p.id),
+              esc(p.name),
+              esc(d.id),
+              esc(d.name),
+              esc(d.type),
+              esc(d.ip),
+              esc(d.url),
+              esc(d.samples),
+              esc(d.uptime_pct == null ? '' : d.uptime_pct.toFixed(2)),
+              esc(d.avg_response_ms == null ? '' : d.avg_response_ms.toFixed(2))
+            ].join(',')
+          );
+        }
+      }
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="uptime-${period}.csv"`);
+      return res.send(header + lines.join('\n') + '\n');
+    }
+
+    res.json(payload);
+  } catch (e) {
+    console.error('Error generating uptime report:', e);
+    res.status(500).json({ error: 'Failed to generate report' });
   }
 });
 

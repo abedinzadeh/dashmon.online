@@ -6,7 +6,6 @@
   <title>Dashmon - Project</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <script src="https://cdn.tailwindcss.com"></script>
-<link rel="stylesheet" href="ui.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="./scroll-lock.js"></script>
   <script src="./chart-lifecycle.js"></script>
@@ -19,6 +18,9 @@
       </a>
       <div class="flex flex-wrap items-center gap-3">
         <span id="userPlanBadge" class="px-2 py-1 rounded-full text-xs font-bold bg-gray-700">FREE</span>
+        <a href="/app/reports.html" class="px-4 py-2 rounded-lg bg-gray-800/60 hover:bg-gray-700/60 border border-gray-700 font-semibold">
+          <i class="fas fa-chart-column mr-2"></i>Reports
+        </a>
         <button id="logoutBtn" class="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 font-semibold">
           <i class="fas fa-sign-out-alt mr-2"></i>Logout
         </button>
@@ -321,106 +323,6 @@ function bindProjectMaintenanceUI(){
     sparkCharts.set(deviceId, new Chart(el.getContext('2d'), cfg));
   }
 
-
-
-// --- Device detail chart UX (range + loading + empty state) ---
-let pdOpenDeviceId = null;
-let pdRange = '24h';
-let pdRangeBound = false;
-
-function setPdRangeUI(range){
-  const group = document.getElementById('pdRange');
-  if (!group) return;
-  [...group.querySelectorAll('button[data-range]')].forEach(btn => {
-    btn.classList.toggle('is-active', btn.getAttribute('data-range') === range);
-  });
-}
-
-function bindPdRangeSelector(){
-  if (pdRangeBound) return;
-  pdRangeBound = true;
-  const group = document.getElementById('pdRange');
-  if (!group) return;
-  group.addEventListener('click', (e) => {
-    const btn = e.target?.closest?.('button[data-range]');
-    if (!btn) return;
-    const r = btn.getAttribute('data-range');
-    if (!r) return;
-    pdRange = r;
-    setPdRangeUI(pdRange);
-    if (pdOpenDeviceId) loadPdHistory(pdOpenDeviceId);
-  });
-}
-
-function showPdChartState(state){
-  const sk = document.getElementById('pdChartSkeleton');
-  const empty = document.getElementById('pdChartEmpty');
-  const canvas = document.getElementById('projectDeviceChart');
-  if (sk) sk.classList.toggle('hidden', state !== 'loading');
-  if (empty) empty.classList.toggle('hidden', state !== 'empty');
-  if (canvas) canvas.style.opacity = (state === 'ready') ? '1' : '0.15';
-}
-
-async function loadPdHistory(deviceId){
-  const limits = { '24h': 240, '7d': 500, '30d': 500 };
-  const limit = limits[pdRange] || 240;
-
-  showPdChartState('loading');
-
-  const url = `/api/devices/${encodeURIComponent(deviceId)}/history?range=${encodeURIComponent(pdRange)}&limit=${limit}`;
-  const hr = await apiFetch(url);
-
-  if (!hr.ok || typeof Chart === 'undefined') {
-    showPdChartState('empty');
-    return;
-  }
-
-  const hist = (await hr.json()).history || [];
-  if (!hist.length) {
-    showPdChartState('empty');
-    if (deviceChart) { deviceChart.destroy(); deviceChart = null; }
-    return;
-  }
-
-  const labels = hist.map(h => {
-    const d = new Date(h.ts);
-    if (pdRange === '24h') return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    return d.toLocaleDateString([], { month: 'short', day: '2-digit' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  });
-
-  const values = hist.map(h => (h.latency_ms == null ? null : Number(h.latency_ms)));
-
-  if (deviceChart) {
-    deviceChart.data.labels = labels;
-    deviceChart.data.datasets[0].data = values;
-    deviceChart.update();
-  } else {
-    deviceChart = new Chart(document.getElementById('projectDeviceChart').getContext('2d'), {
-      type: 'line',
-      data: { labels, datasets: [{ data: values, tension: 0.25, pointRadius: 0, borderWidth: 2, fill: false, spanGaps: false }] },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { display: false }, tooltip: { intersect: false, mode: 'index' } },
-        scales: {
-          x: { ticks: { maxTicksLimit: 8 } },
-          y: { beginAtZero: true, ticks: { maxTicksLimit: 6 }, title: { display: true, text: 'ms' } }
-        }
-      }
-    });
-  }
-
-  showPdChartState('ready');
-
-  const list = document.getElementById('pdHistory');
-  list.innerHTML = hist.slice(-30).reverse().map(h => {
-    const t = new Date(h.ts).toLocaleString();
-    const s = (h.status || '').toUpperCase();
-    const l = h.latency_ms == null ? '-' : `${h.latency_ms}ms`;
-    return `<div class="flex justify-between gap-3 py-1 border-b border-white/5"><span>${t}</span><span>${s}</span><span>${l}</span></div>`;
-  }).join('') || '<div class="text-gray-400">No history yet.</div>';
-}
-
   async function openDeviceDetails(device){
     // fill modal
     document.getElementById('pdName').textContent = device.name || '';
@@ -434,11 +336,32 @@ async function loadPdHistory(deviceId){
     document.getElementById('pdEdit').dataset.deviceId = device.id;
     document.getElementById('pdDelete').dataset.deviceId = device.id;
 
-    // history chart + list (range-aware)
-    pdOpenDeviceId = device.id;
-    bindPdRangeSelector();
-    setPdRangeUI(pdRange);
-    await loadPdHistory(device.id);
+    // history chart + list
+    const hr = await apiFetch(`/api/devices/${encodeURIComponent(device.id)}/history?limit=60`);
+    if(hr.ok && typeof Chart!=='undefined'){
+      const hist = (await hr.json()).history || [];
+      const labels = hist.map(h => new Date(h.ts).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}));
+      const values = hist.map(h => (h.latency_ms==null ? null : Number(h.latency_ms)));
+      if(deviceChart){
+        deviceChart.data.labels = labels;
+        deviceChart.data.datasets[0].data = values;
+        deviceChart.update();
+      } else {
+        deviceChart = new Chart(document.getElementById('projectDeviceChart').getContext('2d'), {
+          type:'line',
+          data:{ labels, datasets:[{ data: values, tension:0.25, pointRadius:0, borderWidth:2, fill:false }]},
+          options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{ticks:{maxTicksLimit:8}}, y:{beginAtZero:true}}}
+        });
+      }
+
+      const list = document.getElementById('pdHistory');
+      list.innerHTML = hist.slice(-30).reverse().map(h=>{
+        const t = new Date(h.ts).toLocaleString();
+        const s = (h.status||'').toUpperCase();
+        const l = h.latency_ms==null ? '-' : `${h.latency_ms}ms`;
+        return `<div class="flex justify-between gap-3 py-1 border-b border-white/5"><span>${t}</span><span>${s}</span><span>${l}</span></div>`;
+      }).join('') || '<div class="text-gray-400">No history yet.</div>';
+    }
 
     const modal = document.getElementById('projectDeviceDetailsModal');
     modal.classList.remove('hidden'); modal.classList.add('flex');
@@ -447,11 +370,9 @@ async function loadPdHistory(deviceId){
 
   function closeDeviceDetails(){
     hideEditPanel();
-    pdOpenDeviceId = null;
     const modal = document.getElementById('projectDeviceDetailsModal');
     modal.classList.add('hidden'); modal.classList.remove('flex');
     if(deviceChart){ deviceChart.destroy(); deviceChart = null; }
-    showPdChartState('ready');
     scrollLock?.unlock();
   }
 
@@ -705,30 +626,13 @@ async function loadPdHistory(deviceId){
         </div>
 
         <div class="lg:col-span-2 space-y-4">
-          <div class="p-4 rounded-xl bg-black/20 border border-white/10 dm-card">
-            <div class="flex items-center justify-between gap-3 mb-2">
-              <div>
-                <div class="text-sm font-semibold text-gray-200">Latency</div>
-                <div class="text-xs text-gray-400">Response time (ms)</div>
-              </div>
-              <div class="flex items-center gap-2">
-                <div id="pdRange" class="dm-seg" role="tablist" aria-label="Time range">
-                  <button type="button" class="dm-seg-btn" data-range="24h">24h</button>
-                  <button type="button" class="dm-seg-btn" data-range="7d">7d</button>
-                  <button type="button" class="dm-seg-btn" data-range="30d">30d</button>
-                </div>
-              </div>
+          <div class="p-4 rounded-xl bg-black/20 border border-white/10">
+            <div class="flex items-center justify-between mb-2">
+              <div class="text-sm font-semibold text-gray-200">Latency (recent)</div>
+              <div class="text-xs text-gray-400">ms</div>
             </div>
-
-            <div class="relative h-44">
-              <div id="pdChartSkeleton" class="dm-skeleton hidden">
-                <div class="w-1/3 h-3 rounded bg-white/10 mb-3"></div>
-                <div class="w-full h-24 rounded bg-white/10"></div>
-              </div>
-
-              <div id="pdChartEmpty" class="dm-empty hidden">No history for this time range yet.</div>
-
-              <canvas id="projectDeviceChart" class="w-full h-full"></canvas>
+            <div class="h-40">
+              <canvas id="projectDeviceChart"></canvas>
             </div>
           </div>
 

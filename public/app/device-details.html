@@ -6,7 +6,6 @@
   <title>Dashmon - Device Details</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <script src="https://cdn.tailwindcss.com"></script>
-<link rel="stylesheet" href="ui.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="./scroll-lock.js"></script>
   <script src="./chart-lifecycle.js"></script>
@@ -19,6 +18,9 @@
       </a>
       <div class="flex flex-wrap items-center gap-3">
         <span id="userPlanBadge" class="px-2 py-1 rounded-full text-xs font-bold bg-gray-700">FREE</span>
+        <a href="/app/reports.html" class="px-4 py-2 rounded-lg bg-gray-800/60 hover:bg-gray-700/60 border border-gray-700 font-semibold">
+          <i class="fas fa-chart-bar mr-2"></i>Reports
+        </a>
         <button id="logoutBtn" class="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 font-semibold">
           <i class="fas fa-sign-out-alt mr-2"></i>Logout
         </button>
@@ -184,14 +186,6 @@
     return now >= s && (!e || now <= e);
   }
 
-  // Scheduled (but not yet active) maintenance window
-  function isMaintenanceScheduled(startIso){
-    if(!startIso) return false;
-    const now = Date.now();
-    const s = new Date(startIso).getTime();
-    return now < s;
-  }
-
   function maintenanceSummary(startIso, endIso){
     if(!startIso) return '';
     const s = new Date(startIso).toLocaleString();
@@ -240,16 +234,10 @@
     const line = $('projectMaintenanceLine');
     if(!line) return;
     const active = !!project.maintenanceActive || isMaintenanceActive(project.maintenance_start, project.maintenance_end);
-    const scheduled = !active && isMaintenanceScheduled(project.maintenance_start);
     project.maintenanceActive = active;
     if(active){
       line.innerHTML = `<div class="inline-flex items-center gap-2 text-sm text-purple-200">
         <span class="px-2 py-0.5 rounded-full bg-purple-500/20 border border-purple-400/30 font-semibold">MAINTENANCE</span>
-        <span>${escapeHtml(maintenanceSummary(project.maintenance_start, project.maintenance_end))}</span>
-      </div>`;
-    } else if (scheduled) {
-      line.innerHTML = `<div class="inline-flex items-center gap-2 text-sm text-purple-200">
-        <span class="px-2 py-0.5 rounded-full bg-purple-500/20 border border-purple-400/30 font-semibold">SCHEDULED</span>
         <span>${escapeHtml(maintenanceSummary(project.maintenance_start, project.maintenance_end))}</span>
       </div>`;
     } else {
@@ -382,11 +370,7 @@ function bindProjectMaintenanceUI(){
       fillDateTimeLocal('projectMaintEnd', currentProject.maintenance_end);
 
       const premium = canUseMaintenance();
-      // Keep this robust even if the element was created with inline style instead of Tailwind's `hidden` class.
-      if(upgradeHint){
-        if('style' in upgradeHint) upgradeHint.style.display = premium ? 'none' : 'block';
-        upgradeHint.classList.toggle('hidden', premium);
-      }
+      if(upgradeHint) upgradeHint.classList.toggle('hidden', premium);
 
       [startEl,endEl,saveBtn,clearBtn].forEach(el=>{
         if(!el) return;
@@ -457,13 +441,9 @@ function bindProjectMaintenanceUI(){
       list.innerHTML = '<div class="text-gray-400">No devices yet.</div>';
       return;
     }
-    // If the project has a maintenance window set (active OR scheduled), treat it as “project maintenance enabled”
-    // and tint all devices purple, matching the expected UX.
-    const projectMaintEnabled = !!(currentProject && currentProject.maintenance_start);
-
     devices.forEach(d=>{
       const div=document.createElement('div');
-      const maintActive = projectMaintEnabled || !!d.maintenanceActive || isMaintenanceActive(d.maintenance_start, d.maintenance_end);
+      const maintActive = !!d.maintenanceActive || isMaintenanceActive(d.maintenance_start, d.maintenance_end);
       d.maintenanceActive = maintActive;
       div.className = maintActive
         ? 'p-4 rounded-xl bg-purple-900/20 border border-purple-500/30 flex items-center justify-between gap-3'
@@ -498,115 +478,91 @@ function bindProjectMaintenanceUI(){
 
   // charts
   let deviceChart = null;
-  let infraWeeklyChart = null;
-  let infraTimelineChart = null;
+  let pdAnalyticsChart = null;
+  const sparkCharts = new Map();
 
-  function setInfraEmpty(which, isEmpty){
-    const el = document.getElementById(which);
-    if(el) el.classList.toggle('hidden', !isEmpty);
+  function isPremiumUser(){ return (window.__me && String(window.__me.plan).toLowerCase()==='premium'); }
+
+  let pdAnalyticsDeviceId = null;
+  let pdAnalyticsRange = '7d';
+
+  function setAnalyticsRangeActive(range){
+    document.querySelectorAll('.pdAnalyticsRange').forEach(btn=>{
+      const r = btn.getAttribute('data-range');
+      if(r===range) btn.classList.add('bg-white/10'); else btn.classList.remove('bg-white/10');
+    });
   }
 
-  function computeUptimeScore(entry){
-    // Dashmon history doesn't have packet loss. We treat status as the uptime signal.
-    // - up/success => 100
-    // - warning => 70
-    // - down/failed => 0
-    const s = (entry.status || '').toLowerCase();
-    if (s === 'up' || s === 'success' || s === 'ok') return 100;
-    if (s === 'warning' || s === 'degraded') return 70;
-    if (s === 'maintenance') return 100;
-    return 0;
-  }
+  async function loadAdvancedAnalytics(deviceId, range){
+    pdAnalyticsDeviceId = deviceId;
+    pdAnalyticsRange = range || pdAnalyticsRange;
+    setAnalyticsRangeActive(pdAnalyticsRange);
 
-  function renderInfraCharts(history){
-    const weeklyCanvas = document.getElementById('infraWeeklyChart');
-    const timelineCanvas = document.getElementById('infraTimelineChart');
-    if(!weeklyCanvas || !timelineCanvas || typeof Chart==='undefined') return;
+    const wrap = document.getElementById('pdAdvancedWrap');
+    const upgrade = document.getElementById('pdAnalyticsUpgrade');
+    const loading = document.getElementById('pdAnalyticsLoading');
+    const empty = document.getElementById('pdAnalyticsEmpty');
+    const body = document.getElementById('pdAnalyticsBody');
 
-    if(infraWeeklyChart){ infraWeeklyChart.destroy(); infraWeeklyChart = null; }
-    if(infraTimelineChart){ infraTimelineChart.destroy(); infraTimelineChart = null; }
+    if(!wrap) return;
+    wrap.classList.remove('hidden');
 
-    const hist = Array.isArray(history) ? history.slice() : [];
-    if(!hist.length){
-      setInfraEmpty('infraWeeklyEmpty', true);
-      setInfraEmpty('infraTimelineEmpty', true);
+    if(!isPremiumUser()){
+      upgrade.classList.remove('hidden');
+      loading.classList.add('hidden');
+      empty.classList.add('hidden');
+      body.classList.add('hidden');
       return;
     }
-    setInfraEmpty('infraWeeklyEmpty', false);
-    setInfraEmpty('infraTimelineEmpty', false);
 
-    // --- Weekly uptime (last 7 days, grouped by day name like Infra dashboard) ---
-    const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-    const now = Date.now();
-    const sevenDaysAgo = now - (7*24*60*60*1000);
+    upgrade.classList.add('hidden');
+    empty.classList.add('hidden');
+    body.classList.add('hidden');
+    loading.classList.remove('hidden');
 
-    const dayBuckets = days.map(()=>({scores:[]}));
-    hist.forEach(h=>{
-      const ts = new Date(h.ts || h.timestamp || h.time || 0).getTime();
-      if(!ts || ts < sevenDaysAgo) return;
-      const d = new Date(ts).getDay();
-      const score = computeUptimeScore(h);
-      dayBuckets[d].scores.push(score);
-    });
+    const r = await apiFetch(`/api/devices/${encodeURIComponent(deviceId)}/analytics?range=${encodeURIComponent(pdAnalyticsRange)}`);
+    loading.classList.add('hidden');
+    if(!r.ok){
+      empty.textContent = 'Failed to load analytics.';
+      empty.classList.remove('hidden');
+      return;
+    }
+    const data = await r.json();
+    const a = data.analytics || null;
+    if(!a || !a.samples){
+      empty.textContent = 'No data yet for this time range.';
+      empty.classList.remove('hidden');
+      return;
+    }
 
-    // Average score (0/70/100) mapped to percent, close to Infra's "uptime %"
-    const weeklyUptime = dayBuckets.map(b=>{
-      if(!b.scores.length) return 0;
-      const avg = b.scores.reduce((a,b)=>a+b,0)/b.scores.length;
-      return Math.round(avg);
-    });
+    const fmtPct = (v)=> (v==null || !Number.isFinite(v)) ? '–' : `${v.toFixed(1)}%`;
+    const fmtMs = (v)=> (v==null || !Number.isFinite(v)) ? '–' : `${Math.round(v)}ms`;
+    const fmtNum = (v)=> (v==null || !Number.isFinite(v)) ? '–' : String(v);
+    const fmtMin = (v)=> (v==null || !Number.isFinite(v)) ? '–' : `${v} min`;
 
-    infraWeeklyChart = new Chart(weeklyCanvas.getContext('2d'),{
-      type:'bar',
-      data:{
-        labels: days,
-        datasets:[{
-          label:'Average Uptime %',
-          data: weeklyUptime,
-          backgroundColor: weeklyUptime.map(u=> u>=90 ? 'rgba(16,185,129,0.35)' : u>=70 ? 'rgba(245,158,11,0.35)' : 'rgba(239,68,68,0.35)'),
-          borderColor: weeklyUptime.map(u=> u>=90 ? 'rgba(16,185,129,0.9)' : u>=70 ? 'rgba(245,158,11,0.9)' : 'rgba(239,68,68,0.9)'),
-          borderWidth: 1
-        }]
-      },
-      options:{
-        responsive:true,
-        maintainAspectRatio:false,
-        plugins:{
-          legend:{display:false},
-          tooltip:{callbacks:{ label:(ctx)=> `Uptime: ${ctx.parsed.y}%`}}
-        },
-        scales:{
-          x:{ ticks:{ color:'rgba(229,231,235,0.75)' }, grid:{ color:'rgba(255,255,255,0.06)'} },
-          y:{ beginAtZero:true, max:100, ticks:{ color:'rgba(229,231,235,0.75)', callback:(v)=> v+'%' }, grid:{ color:'rgba(255,255,255,0.06)' } }
-        }
+    document.getElementById('pdA_uptime').textContent = fmtPct(a.uptime_pct);
+    document.getElementById('pdA_avg').textContent = fmtMs(a.avg_response_ms);
+    document.getElementById('pdA_incidents').textContent = fmtNum(a.incident_count);
+    document.getElementById('pdA_downtime').textContent = fmtMin(a.downtime_minutes);
+
+    // Simple bar: Up% vs Down%
+    if(typeof Chart!=='undefined'){
+      const ctx = document.getElementById('pdAnalyticsBar')?.getContext('2d');
+      if(ctx){
+        const up = Math.max(0, Math.min(100, Number(a.uptime_pct)||0));
+        const down = Math.max(0, 100 - up);
+        const cfg = {
+          type:'bar',
+          data:{ labels:['Up','Down'], datasets:[{ data:[up, down], borderWidth:1 }]},
+          options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true, max:100, ticks:{callback:(v)=>v+'%'}}}}
+        };
+        if(pdAnalyticsChart){ pdAnalyticsChart.destroy(); pdAnalyticsChart=null; }
+        pdAnalyticsChart = new Chart(ctx, cfg);
       }
-    });
+    }
 
-    // --- Timeline (last 48 checks as bars, like Infra dashboard) ---
-    const recent = hist.slice(-48);
-    const labels = recent.map(h=>{
-      const d = new Date(h.ts || h.timestamp || 0);
-      return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-    });
-    const scores = recent.map(computeUptimeScore);
-    const bg = scores.map(u=> u>=90 ? 'rgba(16,185,129,0.35)' : u>=70 ? 'rgba(245,158,11,0.35)' : 'rgba(239,68,68,0.35)');
-    const bd = scores.map(u=> u>=90 ? 'rgba(16,185,129,0.9)' : u>=70 ? 'rgba(245,158,11,0.9)' : 'rgba(239,68,68,0.9)');
-
-    infraTimelineChart = new Chart(timelineCanvas.getContext('2d'),{
-      type:'bar',
-      data:{ labels, datasets:[{ label:'Uptime %', data:scores, backgroundColor:bg, borderColor:bd, borderWidth:1, barPercentage:0.9, categoryPercentage:0.95 }]},
-      options:{
-        responsive:true,
-        maintainAspectRatio:false,
-        plugins:{ legend:{display:false}, tooltip:{callbacks:{ label:(ctx)=> `Uptime: ${ctx.parsed.y}%` }} },
-        scales:{
-          x:{ ticks:{ maxTicksLimit:8, color:'rgba(229,231,235,0.75)' }, grid:{ display:false } },
-          y:{ beginAtZero:true, max:100, ticks:{ color:'rgba(229,231,235,0.75)', callback:(v)=> v+'%' }, grid:{ color:'rgba(255,255,255,0.06)' } }
-        }
-      }
-    });
+    body.classList.remove('hidden');
   }
-  const sparkCharts = new Map();
 
   function statusDotColor(s){
     s = (s||'unknown').toLowerCase();
@@ -635,111 +591,6 @@ function bindProjectMaintenanceUI(){
     sparkCharts.set(deviceId, new Chart(el.getContext('2d'), cfg));
   }
 
-
-
-// --- Device detail chart UX (range + loading + empty state) ---
-let pdOpenDeviceId = null;
-let pdRange = '24h';
-let pdRangeBound = false;
-
-function setPdRangeUI(range){
-  const group = document.getElementById('pdRange');
-  if (!group) return;
-  [...group.querySelectorAll('button[data-range]')].forEach(btn => {
-    btn.classList.toggle('is-active', btn.getAttribute('data-range') === range);
-  });
-}
-
-function bindPdRangeSelector(){
-  if (pdRangeBound) return;
-  pdRangeBound = true;
-  const group = document.getElementById('pdRange');
-  if (!group) return;
-  group.addEventListener('click', (e) => {
-    const btn = e.target?.closest?.('button[data-range]');
-    if (!btn) return;
-    const r = btn.getAttribute('data-range');
-    if (!r) return;
-    pdRange = r;
-    setPdRangeUI(pdRange);
-    if (pdOpenDeviceId) loadPdHistory(pdOpenDeviceId);
-  });
-}
-
-function showPdChartState(state){
-  const sk = document.getElementById('pdChartSkeleton');
-  const empty = document.getElementById('pdChartEmpty');
-  const canvas = document.getElementById('projectDeviceChart');
-  if (sk) sk.classList.toggle('hidden', state !== 'loading');
-  if (empty) empty.classList.toggle('hidden', state !== 'empty');
-  if (canvas) canvas.style.opacity = (state === 'ready') ? '1' : '0.15';
-}
-
-async function loadPdHistory(deviceId){
-  const limits = { '24h': 240, '7d': 500, '30d': 500 };
-  const limit = limits[pdRange] || 240;
-
-  showPdChartState('loading');
-
-  const url = `/api/devices/${encodeURIComponent(deviceId)}/history?range=${encodeURIComponent(pdRange)}&limit=${limit}`;
-  const hr = await apiFetch(url);
-
-  if (!hr.ok || typeof Chart === 'undefined') {
-    showPdChartState('empty');
-    return;
-  }
-
-  const hist = (await hr.json()).history || [];
-  if (!hist.length) {
-    showPdChartState('empty');
-    if (deviceChart) { deviceChart.destroy(); deviceChart = null; }
-    return;
-  }
-
-  // Prefer showing date on longer ranges
-  const labels = hist.map(h => {
-    const d = new Date(h.ts);
-    if (pdRange === '24h') return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    return d.toLocaleDateString([], { month: 'short', day: '2-digit' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  });
-
-  const values = hist.map(h => (h.latency_ms == null ? null : Number(h.latency_ms)));
-
-  if (deviceChart) {
-    deviceChart.data.labels = labels;
-    deviceChart.data.datasets[0].data = values;
-    deviceChart.update();
-  } else {
-    deviceChart = new Chart(document.getElementById('projectDeviceChart').getContext('2d'), {
-      type: 'line',
-      data: { labels, datasets: [{ data: values, tension: 0.25, pointRadius: 0, borderWidth: 2, fill: false, spanGaps: false }] },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { display: false }, tooltip: { intersect: false, mode: 'index' } },
-        scales: {
-          x: { ticks: { maxTicksLimit: 8 } },
-          y: { beginAtZero: true, ticks: { maxTicksLimit: 6 }, title: { display: true, text: 'ms' } }
-        }
-      }
-    });
-  }
-
-  showPdChartState('ready');
-
-  // Infra-style charts (weekly + timeline) from Infrastructure Monitoring UI
-  renderInfraCharts(hist);
-
-  // History list
-  const list = document.getElementById('pdHistory');
-  list.innerHTML = hist.slice(-30).reverse().map(h => {
-    const t = new Date(h.ts).toLocaleString();
-    const s = (h.status || '').toUpperCase();
-    const l = h.latency_ms == null ? '-' : `${h.latency_ms}ms`;
-    return `<div class="flex justify-between gap-3 py-1 border-b border-white/5"><span>${t}</span><span>${s}</span><span>${l}</span></div>`;
-  }).join('') || '<div class="text-gray-400">No history yet.</div>';
-}
-
   async function openDeviceDetails(device){
     // fill modal
     document.getElementById('pdName').textContent = device.name || '';
@@ -753,11 +604,35 @@ async function loadPdHistory(deviceId){
     document.getElementById('pdEdit').dataset.deviceId = device.id;
     document.getElementById('pdDelete').dataset.deviceId = device.id;
 
-    // history chart + list (range-aware)
-    pdOpenDeviceId = device.id;
-    bindPdRangeSelector();
-    setPdRangeUI(pdRange);
-    await loadPdHistory(device.id);
+    // history chart + list
+    const hr = await apiFetch(`/api/devices/${encodeURIComponent(device.id)}/history?limit=60`);
+    if(hr.ok && typeof Chart!=='undefined'){
+      const hist = (await hr.json()).history || [];
+      const labels = hist.map(h => new Date(h.ts).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}));
+      const values = hist.map(h => (h.latency_ms==null ? null : Number(h.latency_ms)));
+      if(deviceChart){
+        deviceChart.data.labels = labels;
+        deviceChart.data.datasets[0].data = values;
+        deviceChart.update();
+      } else {
+        deviceChart = new Chart(document.getElementById('projectDeviceChart').getContext('2d'), {
+          type:'line',
+          data:{ labels, datasets:[{ data: values, tension:0.25, pointRadius:0, borderWidth:2, fill:false }]},
+          options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{ticks:{maxTicksLimit:8}}, y:{beginAtZero:true}}}
+        });
+      }
+
+      const list = document.getElementById('pdHistory');
+      list.innerHTML = hist.slice(-30).reverse().map(h=>{
+        const t = new Date(h.ts).toLocaleString();
+        const s = (h.status||'').toUpperCase();
+        const l = h.latency_ms==null ? '-' : `${h.latency_ms}ms`;
+        return `<div class="flex justify-between gap-3 py-1 border-b border-white/5"><span>${t}</span><span>${s}</span><span>${l}</span></div>`;
+      }).join('') || '<div class="text-gray-400">No history yet.</div>';
+    }
+
+    // Premium analytics section (runs even if history chart failed; it has its own empty state)
+    await loadAdvancedAnalytics(device.id, pdAnalyticsRange);
 
     const modal = document.getElementById('projectDeviceDetailsModal');
     modal.classList.remove('hidden'); modal.classList.add('flex');
@@ -766,11 +641,12 @@ async function loadPdHistory(deviceId){
 
   function closeDeviceDetails(){
     hideEditPanel();
-    pdOpenDeviceId = null;
     const modal = document.getElementById('projectDeviceDetailsModal');
     modal.classList.add('hidden'); modal.classList.remove('flex');
     if(deviceChart){ deviceChart.destroy(); deviceChart = null; }
-    showPdChartState('ready');
+    if(pdAnalyticsChart){ pdAnalyticsChart.destroy(); pdAnalyticsChart = null; }
+    const wrap = document.getElementById('pdAdvancedWrap');
+    if(wrap) wrap.classList.add('hidden');
     scrollLock?.unlock();
   }
 
@@ -979,10 +855,15 @@ async function loadPdHistory(deviceId){
     document.getElementById('pdEditCancel').addEventListener('click', hideEditPanel);
     document.getElementById('pdEditForm').addEventListener('submit', saveEdit);
 
-    // Maintenance modals
-    // (These were previously implemented but never actually bound, so the big Project Maintenance button did nothing.)
-    bindProjectMaintenanceUI();
-    wireDeviceMaintenanceModalClose();
+    // Advanced analytics range buttons
+    document.querySelectorAll('.pdAnalyticsRange').forEach(btn=>{
+      btn.addEventListener('click', async (e)=>{
+        e.preventDefault();
+        const range = btn.getAttribute('data-range') || '7d';
+        if(!pdAnalyticsDeviceId) { pdAnalyticsRange = range; setAnalyticsRangeActive(range); return; }
+        await loadAdvancedAnalytics(pdAnalyticsDeviceId, range);
+      });
+    });
 
     load();
   });
@@ -1029,57 +910,74 @@ async function loadPdHistory(deviceId){
         </div>
 
         <div class="lg:col-span-2 space-y-4">
-          <div class="p-4 rounded-xl bg-black/20 border border-white/10 dm-card">
-            <div class="flex items-center justify-between gap-3 mb-2">
-              <div>
-                <div class="text-sm font-semibold text-gray-200">Latency</div>
-                <div class="text-xs text-gray-400">Response time (ms)</div>
-              </div>
-              <div class="flex items-center gap-2">
-                <div id="pdRange" class="dm-seg" role="tablist" aria-label="Time range">
-                  <button type="button" class="dm-seg-btn" data-range="24h">24h</button>
-                  <button type="button" class="dm-seg-btn" data-range="7d">7d</button>
-                  <button type="button" class="dm-seg-btn" data-range="30d">30d</button>
-                </div>
-              </div>
+          <div class="p-4 rounded-xl bg-black/20 border border-white/10">
+            <div class="flex items-center justify-between mb-2">
+              <div class="text-sm font-semibold text-gray-200">Latency (recent)</div>
+              <div class="text-xs text-gray-400">ms</div>
             </div>
-
-            <div class="relative h-44">
-              <div id="pdChartSkeleton" class="dm-skeleton hidden">
-                <div class="w-1/3 h-3 rounded bg-white/10 mb-3"></div>
-                <div class="w-full h-24 rounded bg-white/10"></div>
-              </div>
-
-              <div id="pdChartEmpty" class="dm-empty hidden">No history for this time range yet.</div>
-
-              <canvas id="projectDeviceChart" class="w-full h-full"></canvas>
-            </div>
-          </div>
-
-          <div class="p-4 rounded-xl bg-black/20 border border-white/10 dm-card">
-            <div class="flex items-center justify-between gap-3 mb-2">
-              <div>
-                <div class="text-sm font-semibold text-gray-200">Infra-style uptime</div>
-                <div class="text-xs text-gray-400">Weekly uptime + recent timeline</div>
-              </div>
-              <div class="text-xs text-gray-500">Uses same device history</div>
-            </div>
-
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div class="relative h-40">
-                <div id="infraWeeklyEmpty" class="dm-empty hidden">No data for weekly uptime.</div>
-                <canvas id="infraWeeklyChart" class="w-full h-full"></canvas>
-              </div>
-              <div class="relative h-40">
-                <div id="infraTimelineEmpty" class="dm-empty hidden">No data for timeline.</div>
-                <canvas id="infraTimelineChart" class="w-full h-full"></canvas>
-              </div>
+            <div class="h-40">
+              <canvas id="projectDeviceChart"></canvas>
             </div>
           </div>
 
           <div class="p-4 rounded-xl bg-black/20 border border-white/10">
             <div class="text-sm font-semibold text-gray-200 mb-2">Recent checks</div>
             <div id="pdHistory" class="text-xs text-gray-300 max-h-44 overflow-auto"></div>
+          </div>
+
+          <!-- Advanced analytics (Premium) -->
+          <div id="pdAdvancedWrap" class="p-4 rounded-xl bg-black/20 border border-white/10 hidden">
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <div class="text-sm font-semibold text-gray-200">Advanced device analytics</div>
+                <div class="text-xs text-gray-400">Premium • uptime, incidents, downtime, response time</div>
+              </div>
+              <div class="inline-flex rounded-xl border border-white/10 overflow-hidden">
+                <button class="pdAnalyticsRange px-3 py-1.5 text-xs font-semibold hover:bg-white/5" data-range="24h">24h</button>
+                <button class="pdAnalyticsRange px-3 py-1.5 text-xs font-semibold hover:bg-white/5" data-range="7d">7d</button>
+                <button class="pdAnalyticsRange px-3 py-1.5 text-xs font-semibold hover:bg-white/5" data-range="30d">30d</button>
+              </div>
+            </div>
+
+            <div id="pdAnalyticsUpgrade" class="mt-3 text-sm text-amber-200/90 hidden">This section is Premium-only. Upgrade to enable.</div>
+
+            <div id="pdAnalyticsLoading" class="mt-4 hidden">
+              <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div class="h-16 rounded-xl bg-white/5 animate-pulse"></div>
+                <div class="h-16 rounded-xl bg-white/5 animate-pulse"></div>
+                <div class="h-16 rounded-xl bg-white/5 animate-pulse"></div>
+                <div class="h-16 rounded-xl bg-white/5 animate-pulse"></div>
+              </div>
+              <div class="h-32 mt-4 rounded-xl bg-white/5 animate-pulse"></div>
+            </div>
+
+            <div id="pdAnalyticsEmpty" class="mt-4 text-sm text-gray-400 hidden">No data yet for this time range.</div>
+
+            <div id="pdAnalyticsBody" class="mt-4 hidden">
+              <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div class="rounded-xl border border-white/10 bg-white/5 p-3">
+                  <div class="text-xs text-gray-400">Uptime</div>
+                  <div id="pdA_uptime" class="text-lg font-bold text-white">–</div>
+                </div>
+                <div class="rounded-xl border border-white/10 bg-white/5 p-3">
+                  <div class="text-xs text-gray-400">Avg response</div>
+                  <div id="pdA_avg" class="text-lg font-bold text-white">–</div>
+                </div>
+                <div class="rounded-xl border border-white/10 bg-white/5 p-3">
+                  <div class="text-xs text-gray-400">Incidents</div>
+                  <div id="pdA_incidents" class="text-lg font-bold text-white">–</div>
+                </div>
+                <div class="rounded-xl border border-white/10 bg-white/5 p-3">
+                  <div class="text-xs text-gray-400">Downtime</div>
+                  <div id="pdA_downtime" class="text-lg font-bold text-white">–</div>
+                </div>
+              </div>
+
+              <div class="mt-4">
+                <div class="text-xs text-gray-400 mb-2">Uptime vs Down</div>
+                <div class="h-32"><canvas id="pdAnalyticsBar"></canvas></div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
