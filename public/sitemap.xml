@@ -10,4 +10,7 @@
     <changefreq>monthly</changefreq>
     <priority>0.2</priority>
   </url>
+  <url><loc>https://dashmon.online/about.html</loc></url>
+  <url><loc>https://dashmon.online/terms.html</loc></url>
+  <url><loc>https://dashmon.online/privacy.html</loc></url>
 </urlset>

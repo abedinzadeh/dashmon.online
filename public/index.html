@@ -197,15 +197,14 @@
             <circle cx="256" cy="256" r="120" fill="#4f46e5"/>
             <circle cx="256" cy="256" r="60" fill="white"/>
           </svg>
-          <span>Trusted by 2,500+ teams worldwide</span>
+          <span>Built for teams who run stores, branches, and critical services</span>
         </div>
         
         <h1 class="text-5xl lg:text-6xl font-bold leading-tight mb-6">Real-time <span class="gradient-text hero-glow">infrastructure monitoring</span> in one dashboard</h1>
         
         <p class="text-xl text-gray-300 mb-8 leading-relaxed">
-          Real-time monitoring for servers, firewalls, databases, and services. 
-          Get alerted before issues affect your users. From free 2-hour checks 
-          to enterprise-grade 15-second monitoring.
+          Real-time monitoring for websites, servers, firewalls, and core services.<br/>
+          Know what’s down, what’s slow, and what needs attention — with clear dashboards and fast alerts.
         </p>
 
         <div class="flex flex-wrap gap-4 mb-10">
@@ -309,8 +308,8 @@
     <!-- Features Section -->
     <section id="features" class="mt-32 mb-24">
       <div class="text-center mb-16">
-        <h2 class="text-4xl font-bold mb-4">Everything you need for monitoring</h2>
-        <p class="text-xl text-gray-400 max-w-3xl mx-auto">From single servers to complex microservices architectures</p>
+        <h2 class="text-4xl font-bold mb-4">Monitoring that stays out of your way</h2>
+        <p class="text-xl text-gray-400 max-w-3xl mx-auto">Simple for one site. Strong enough for multi-site operations.</p>
       </div>
       
       <div class="grid md:grid-cols-3 gap-8">
@@ -361,7 +360,43 @@
     </section>
 
     <!-- Pricing Section -->
-    <section id="pricing" class="mt-32 mb-24">
+    <section id="preview" class="mt-28 mb-24">
+      <div class="text-center mb-14">
+        <h2 class="text-4xl font-bold mb-4">Built for fast decisions</h2>
+        <p class="text-xl text-gray-400 max-w-3xl mx-auto">
+          Reduce noise. Spot outages quickly. Prove performance with history.
+        </p>
+      </div>
+
+      <div class="grid lg:grid-cols-2 gap-8">
+        <div class="glass-card p-6 rounded-2xl border border-gray-800/60">
+          <img src="/marketing-dashboard.png" alt="Dashmon dashboard preview" loading="lazy" class="w-full rounded-xl border border-gray-800/70" />
+          <div class="mt-5">
+            <h3 class="text-2xl font-semibold mb-2">Dashboards that stay readable</h3>
+            <p class="text-gray-400">Clear status, latency, and trend lines — designed for day‑to‑day operations.</p>
+          </div>
+        </div>
+
+        <div class="glass-card p-6 rounded-2xl border border-gray-800/60">
+          <img src="/marketing-alerts.png" alt="Dashmon alerting preview" loading="lazy" class="w-full rounded-xl border border-gray-800/70" />
+          <div class="mt-5">
+            <h3 class="text-2xl font-semibold mb-2">Alerts with context</h3>
+            <p class="text-gray-400">Know what changed, what’s affected, and how long it’s been happening — without alert spam.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-10 text-center">
+        <a href="/login.html" class="px-6 py-3 rounded-xl bg-gray-800/60 hover:bg-gray-700/60 font-semibold border border-gray-700 transition-all">
+          Sign in
+        </a>
+        <a href="/auth/google" class="ml-3 px-6 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 font-semibold shadow-xl shadow-blue-500/25 transition-all hover:scale-105 inline-flex items-center gap-2">
+          Start free
+        </a>
+      </div>
+    </section>
+
+<section id="pricing" class="mt-32 mb-24">
       <div class="text-center mb-16">
         <h2 class="text-4xl font-bold mb-4">Simple, Transparent Pricing</h2>
         <p class="text-xl text-gray-400">Start free, upgrade when you need more</p>
@@ -633,5 +668,26 @@
       }, 5000);
     });
   </script>
+
+  <footer class="mt-28 border-t border-gray-800/60 py-10">
+    <div class="max-w-6xl mx-auto px-4 flex flex-col md:flex-row items-center justify-between gap-4 text-gray-400">
+      <div class="flex items-center gap-3">
+        <span class="font-semibold text-gray-200">Dashmon</span>
+        <span>© <span id="copyrightYear"></span> Dashmon. All rights reserved.</span>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-5">
+        <a class="hover:text-white transition-colors" href="/about.html">About</a>
+        <a class="hover:text-white transition-colors" href="/terms.html">Terms</a>
+        <a class="hover:text-white transition-colors" href="/privacy.html">Privacy</a>
+        <a class="hover:text-white transition-colors" href="/login.html">Login</a>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    document.getElementById('copyrightYear').textContent = new Date().getFullYear();
+  </script>
+
 </body>
 </html>

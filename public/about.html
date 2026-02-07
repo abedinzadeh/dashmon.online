@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>About - Dashmon</title>
+  <meta name="description" content="Learn what Dashmon is and why it exists. Simple, reliable monitoring for modern teams." />
+  <link rel="canonical" href="https://dashmon.online/about.html" />
+
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="About - Dashmon" />
+  <meta property="og:description" content="Learn what Dashmon is and why it exists. Simple, reliable monitoring for modern teams." />
+  <meta property="og:url" content="https://dashmon.online/about.html" />
+  <meta property="og:image" content="https://dashmon.online/og-image.png" />
+
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="About - Dashmon" />
+  <meta name="twitter:description" content="Learn what Dashmon is and why it exists. Simple, reliable monitoring for modern teams." />
+  <meta name="twitter:image" content="https://dashmon.online/og-image.png" />
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background: radial-gradient(1200px 600px at 20% -10%, rgba(79,70,229,0.25), transparent 60%),
+                      radial-gradient(1000px 500px at 90% 0%, rgba(147,51,234,0.22), transparent 55%),
+                      #0b1220; }
+    .glass { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.10); backdrop-filter: blur(14px); }
+  </style>
+</head>
+<body class="text-white">
+  <header class="max-w-6xl mx-auto px-4 py-8 flex items-center justify-between">
+    <a href="/" class="flex items-center gap-3">
+      <span class="font-bold text-xl">Dashmon</span>
+    </a>
+    <nav class="flex items-center gap-4 text-gray-300">
+      <a href="/" class="hover:text-white">Home</a>
+      <a href="/login.html" class="hover:text-white">Login</a>
+    </nav>
+  </header>
+
+  <main class="max-w-3xl mx-auto px-4 pb-16">
+    <div class="glass rounded-2xl p-8">
+      <h1 class="text-4xl font-bold mb-4">About Dashmon</h1>
+      <p class="text-gray-300 leading-relaxed">
+        Dashmon is a lightweight monitoring dashboard designed to help teams keep internet‑facing services and infrastructure online.
+        It focuses on clarity: what’s up, what’s down, what’s slow, and what changed.
+      </p>
+      <div class="mt-6">
+        <h2 class="text-2xl font-semibold mb-2">What we monitor</h2>
+        <ul class="list-disc pl-6 text-gray-300 space-y-2">
+          <li>Websites and HTTP endpoints</li>
+          <li>Servers and network devices (as configured)</li>
+          <li>Uptime history and performance trends</li>
+          <li>Alerts to email and integrations</li>
+        </ul>
+      </div>
+      <div class="mt-6">
+        <h2 class="text-2xl font-semibold mb-2">Contact</h2>
+        <p class="text-gray-300">Placeholder contact details — update this section before production marketing.</p>
+      </div>
+    </div>
+
+    <footer class="mt-10 text-center text-gray-400 text-sm">
+      © <span id="copyrightYear"></span> Dashmon. All rights reserved.
+      <div class="mt-3 flex flex-wrap justify-center gap-5">
+        <a class="hover:text-white" href="/about.html">About</a>
+        <a class="hover:text-white" href="/terms.html">Terms</a>
+        <a class="hover:text-white" href="/privacy.html">Privacy</a>
+      </div>
+    </footer>
+  </main>
+
+  <script>
+    document.getElementById('copyrightYear').textContent = new Date().getFullYear();
+  </script>
+</body>
+</html>
