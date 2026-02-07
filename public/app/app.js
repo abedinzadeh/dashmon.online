@@ -11,6 +11,7 @@
     projects: [],
     expanded: new Set(),
     tvMode: false,
+    mainView: (localStorage.getItem('dashmonMainView') || 'projects'),
     soundOn: (localStorage.getItem('downAlertSound') || 'on') === 'on',
     lastDownCount: 0,
     emailAlert: { enabled: false, cooldownMinutes: 30, to: [] }
@@ -517,7 +518,138 @@ function bindTvSummaryCards() {
 }
 
 
-  function renderProjects() {
+  
+  function flattenDevices(projects) {
+    const out = [];
+    (projects || []).forEach(p => {
+      (p.devices || []).forEach(d => {
+        out.push({
+          ...d,
+          projectId: p.id,
+          projectName: p.name,
+          projectLocation: p.location,
+          projectStatus: p.status
+        });
+      });
+    });
+    return out;
+  }
+
+  function filterDevices(devices) {
+    const filterEl = $('storeFilterSelect');
+    const tvFilterEl = $('tvStoreFilterSelect');
+    const filter = (state.tvMode ? (tvFilterEl?.value) : (filterEl?.value)) || 'all';
+    if (filter === 'all') return devices;
+
+    // Reuse existing filter options: down / warning / maintenance / up
+    if (filter === 'up') return devices.filter(d => (d.status || 'unknown') === 'up');
+    if (filter === 'down') return devices.filter(d => (d.status || 'unknown') === 'down');
+    if (filter === 'warning') return devices.filter(d => (d.status || 'unknown') === 'warning');
+    if (filter === 'maintenance') return devices.filter(d => (d.status || 'unknown') === 'maintenance');
+    return devices;
+  }
+
+  function sortDevices(devices) {
+    const sortEl = $('storeSortSelect');
+    const tvSortEl = $('tvStoreSortSelect');
+    const sort = (state.tvMode ? (tvSortEl?.value) : (sortEl?.value)) || 'default';
+    const arr = [...devices];
+
+    if (sort === 'downDevices') {
+      // Put down/warn first in device view
+      const weight = (s) => (s === 'down' ? 3 : s === 'warning' ? 2 : s === 'maintenance' ? 1 : 0);
+      arr.sort((a,b) => weight(b.status) - weight(a.status));
+    } else if (sort === 'id') {
+      arr.sort((a,b) => String(a.projectId).localeCompare(String(b.projectId)));
+    } else if (sort === 'location') {
+      arr.sort((a,b) => String(a.projectLocation || '').localeCompare(String(b.projectLocation || '')));
+    } else if (sort === 'name') {
+      arr.sort((a,b) => String(a.name || '').localeCompare(String(b.name || '')));
+    }
+    return arr;
+  }
+
+  function buildDeviceCard(d) {
+    const st = d.status || 'unknown';
+    const statusText = st === 'up' ? 'Online' : (st === 'down' ? 'Offline' : (st === 'warning' ? 'Warning' : (st === 'maintenance' ? 'Maintenance' : 'Unknown')));
+    const dot = statusClass(st);
+    const barClass = st === 'up' ? 'bg-green-500' : (st === 'warning' ? 'bg-yellow-500' : (st === 'maintenance' ? 'bg-purple-500' : 'bg-red-500'));
+
+    const card = document.createElement('div');
+    card.className = 'store-card glass-card rounded-xl overflow-hidden border border-white/10 bg-blue-900/40 hover:bg-blue-900/55 transition cursor-pointer';
+    card.innerHTML = `
+      <div class="store-header p-4">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div class="flex items-center gap-2">
+              <span class="w-3 h-3 rounded-full ${dot}"></span>
+              <h3 class="font-bold text-white truncate">${escapeHtml(d.name || d.id || 'Device')}</h3>
+            </div>
+            <div class="text-xs text-gray-200/80 mt-1 truncate">
+              ${escapeHtml(d.projectName || 'Project')} • ID: ${escapeHtml(d.projectId)}
+            </div>
+          </div>
+          <div class="text-right">
+            <div class="text-sm font-bold text-white">${escapeHtml(statusText)}</div>
+            <div class="text-xs text-gray-200/70">${escapeHtml(d.type || '')}</div>
+          </div>
+        </div>
+        <div class="mt-3 h-2 rounded-full bg-black/30 overflow-hidden">
+          <div class="h-full ${barClass}" style="width:${st==='up'? '100':'100'}%"></div>
+        </div>
+      </div>
+    `;
+    card.addEventListener('click', () => openDeviceDetails(d.id, d.projectId));
+    return card;
+  }
+
+  function renderDevicesView(projects) {
+    const container = $('projectsContainer');
+    const tvLeft = $('tvProjectsLeft') || $('tvStoresLeft');
+    const tvRight = $('tvProjectsRight') || $('tvStoresRight');
+    if (!container) return;
+
+    const all = flattenDevices(projects);
+    const list = sortDevices(filterDevices(all));
+
+    container.innerHTML = '';
+    if (tvLeft) tvLeft.innerHTML = '';
+    if (tvRight) tvRight.innerHTML = '';
+
+    // Update counts label if present
+    const countEl = $('projectsCount');
+    if (countEl) countEl.textContent = `${list.length} devices`;
+
+    const targetDefault = container;
+    const targetsTv = (tvLeft && tvRight) ? [tvLeft, tvRight] : [];
+
+    // Chunked render for performance
+    const chunkSize = 50;
+    let i = 0;
+
+    function appendChunk() {
+      const end = Math.min(i + chunkSize, list.length);
+      for (; i < end; i++) {
+        const card = buildDeviceCard(list[i]);
+        if (state.tvMode && targetsTv.length === 2) {
+          (i % 2 === 0 ? targetsTv[0] : targetsTv[1]).appendChild(card);
+        } else {
+          targetDefault.appendChild(card);
+        }
+      }
+      if (i < list.length) {
+        requestAnimationFrame(appendChunk);
+      }
+    }
+    requestAnimationFrame(appendChunk);
+  }
+
+function renderProjects() {
+    if (state.mainView === 'devices') {
+      renderDevicesView(sortProjects(filterProjects(state.projects)));
+      return;
+    }
+
     const container = $('projectsContainer');
     const tvLeft = $('tvProjectsLeft') || $('tvStoresLeft');
     const tvRight = $('tvProjectsRight') || $('tvStoresRight');
@@ -799,7 +931,36 @@ function bindTvSummaryCards() {
     renderProjects();
   }
 
-  function toggleDownAlertSound() {
+  
+  function setMainView(view) {
+    state.mainView = view === 'devices' ? 'devices' : 'projects';
+    localStorage.setItem('dashmonMainView', state.mainView);
+    updateMainViewToggleUI();
+    renderProjects();
+  }
+
+  function updateMainViewToggleUI() {
+    const isDevices = state.mainView === 'devices';
+    const pairs = [
+      ['mainViewProjectsBtn','mainViewDevicesBtn'],
+      ['tvMainViewProjectsBtn','tvMainViewDevicesBtn']
+    ];
+    pairs.forEach(([a,b]) => {
+      const btnA = $(a), btnB = $(b);
+      if (!btnA || !btnB) return;
+      if (isDevices) {
+        btnA.classList.remove('bg-gray-700/60','text-white');
+        btnA.classList.add('text-gray-200');
+        btnB.classList.add('bg-gray-700/60','text-white');
+      } else {
+        btnB.classList.remove('bg-gray-700/60','text-white');
+        btnB.classList.add('text-gray-200');
+        btnA.classList.add('bg-gray-700/60','text-white');
+      }
+    });
+  }
+
+function toggleDownAlertSound() {
     state.soundOn = !state.soundOn;
     localStorage.setItem('downAlertSound', state.soundOn ? 'on' : 'off');
     updateUserInfo();
@@ -826,6 +987,36 @@ function bindTvSummaryCards() {
     $('tvModeToggle')?.addEventListener('click', toggleTvMode);
     $('refreshBtn')?.addEventListener('click', refreshAll);
     $('logoutBtn')?.addEventListener('click', logout);
+
+    // Main view toggle (Projects / Devices)
+    $('mainViewProjectsBtn')?.addEventListener('click', () => setMainView('projects'));
+    $('mainViewDevicesBtn')?.addEventListener('click', () => setMainView('devices'));
+    $('tvMainViewProjectsBtn')?.addEventListener('click', () => setMainView('projects'));
+    $('tvMainViewDevicesBtn')?.addEventListener('click', () => setMainView('devices'));
+
+    // TV mode exit button (toolbar)
+    $('tvModeToggleTv')?.addEventListener('click', toggleTvMode);
+
+    // Mirror filter/sort selects into TV toolbar
+    const baseFilter = $('storeFilterSelect');
+    const baseSort = $('storeSortSelect');
+    const tvFilter = $('tvStoreFilterSelect');
+    const tvSort = $('tvStoreSortSelect');
+    if (baseFilter && tvFilter && tvFilter.options.length === 0) {
+      tvFilter.innerHTML = baseFilter.innerHTML;
+      tvFilter.value = baseFilter.value;
+      tvFilter.addEventListener('change', () => { baseFilter.value = tvFilter.value; renderProjects(); });
+      baseFilter.addEventListener('change', () => { tvFilter.value = baseFilter.value; renderProjects(); });
+    }
+    if (baseSort && tvSort && tvSort.options.length === 0) {
+      tvSort.innerHTML = baseSort.innerHTML;
+      tvSort.value = baseSort.value;
+      tvSort.addEventListener('change', () => { baseSort.value = tvSort.value; renderProjects(); });
+      baseSort.addEventListener('change', () => { tvSort.value = baseSort.value; renderProjects(); });
+    }
+
+    updateMainViewToggleUI();
+
 
     $('addStoreBtn')?.addEventListener('click', () => openModal('storeModal'));
     $('closeStoreModal')?.addEventListener('click', () => closeModal('storeModal'));

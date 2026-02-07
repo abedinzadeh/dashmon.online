@@ -469,6 +469,11 @@
 <span class="text-gray-500" id="projectsCount">0 projects</span>
 </div>
 <div class="flex flex-wrap items-center gap-3">
+  <!-- Main View Toggle (Projects / Devices) -->
+  <div class="inline-flex rounded-lg border border-gray-700/60 overflow-hidden bg-gray-800/60" id="mainViewToggle">
+    <button id="mainViewProjectsBtn" class="px-3 py-2 text-sm font-semibold text-white bg-gray-700/60 hover:bg-gray-700/80">Projects</button>
+    <button id="mainViewDevicesBtn" class="px-3 py-2 text-sm font-semibold text-gray-200 hover:bg-gray-700/60">Devices</button>
+  </div>
 <select class="p-2 rounded-lg bg-gray-800/70 hover:bg-gray-800 border border-gray-700/60 text-white" id="storeFilterSelect">
 <option value="all">All projects</option>
 <option value="down">Down projects</option>
@@ -491,6 +496,20 @@
 </div>
 <!-- TV Mode Layout (hidden by default) -->
 <div class="tv-mode hidden" id="tvLayout">
+  <!-- TV Mode Toolbar (keeps controls available in TV mode) -->
+  <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+    <div class="flex items-center gap-2">
+      <div class="inline-flex rounded-lg border border-gray-700/60 overflow-hidden bg-gray-800/60" id="tvMainViewToggle">
+        <button id="tvMainViewProjectsBtn" class="px-3 py-2 text-sm font-semibold text-white bg-gray-700/60 hover:bg-gray-700/80">Projects</button>
+        <button id="tvMainViewDevicesBtn" class="px-3 py-2 text-sm font-semibold text-gray-200 hover:bg-gray-700/60">Devices</button>
+      </div>
+      <select class="p-2 rounded-lg bg-gray-800/70 hover:bg-gray-800 border border-gray-700/60 text-white" id="tvStoreFilterSelect"></select>
+      <select class="p-2 rounded-lg bg-gray-800/70 hover:bg-gray-800 border border-gray-700/60 text-white" id="tvStoreSortSelect"></select>
+    </div>
+    <button class="p-2 rounded-full bg-gray-800 hover:bg-gray-700" id="tvModeToggleTv">
+      <i class="fas fa-tv mr-1"></i> Normal Mode
+    </button>
+  </div>
 <div class="tv-layout">
 <!-- Left Column - Projects -->
 <div class="tv-left-column" id="tvLeftColumn">
