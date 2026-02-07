@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
     name TEXT,
     provider TEXT NOT NULL DEFAULT 'google',
     plan TEXT NOT NULL DEFAULT 'free', -- free | premium
+    timezone TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

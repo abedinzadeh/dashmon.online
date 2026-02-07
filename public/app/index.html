@@ -388,6 +388,9 @@
 <button class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded-lg font-medium" id="refreshBtn">
 <i class="fas fa-sync-alt mr-2"></i> Refresh
             </button>
+<button class="bg-slate-600 hover:bg-slate-700 px-4 py-2 rounded-lg font-medium" id="timezoneBtn">
+<i class="fas fa-clock mr-2"></i> Timezone
+            </button>
 <button class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg font-medium" id="logoutBtn">
 <i class="fas fa-sign-out-alt mr-2"></i> Logout
             </button>
@@ -805,8 +808,33 @@
 </form>
 </div>
 </div>
+
+
+<!-- Timezone Modal -->
+<div id="timezoneModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+  <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-lg p-6">
+    <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Display Timezone (Premium)</h3>
+    <p class="text-sm text-gray-600 dark:text-gray-300 mt-1">
+      Dashmon stores and returns all timestamps in UTC. Set a timezone here to display dates in your local timezone.
+      Leave blank to use UTC.
+    </p>
+
+    <div class="mt-4">
+      <label class="block text-sm font-medium text-gray-700 dark:text-gray-200">Timezone (IANA)</label>
+      <input id="timezoneInput" type="text" placeholder="Australia/Adelaide" class="w-full p-3 border rounded-lg dark:bg-gray-800 dark:border-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-500"/>
+      <p class="text-xs text-gray-500 dark:text-gray-400 mt-2">Examples: Australia/Adelaide, Europe/London, America/New_York</p>
+    </div>
+
+    <div class="flex justify-end gap-3 mt-6">
+      <button type="button" id="cancelTimezone" class="px-4 py-2 border rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800">Cancel</button>
+      <button type="button" id="saveTimezone" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Save</button>
+    </div>
+  </div>
+</div>
+
 <script src="./scroll-lock.js"></script>
 <script src="./chart-lifecycle.js"></script>
+<script src="./date-format.js"></script>
 <script src="./app.js"></script>
 </body>
 </html>

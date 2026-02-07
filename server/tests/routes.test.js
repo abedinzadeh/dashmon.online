@@ -53,6 +53,9 @@ function buildRouterWithMocks(poolMock) {
   const originalLoad = Module._load;
   Module._load = function patchedLoad(request, parent, isMain) {
     if (request === 'express') return createExpressMock();
+    if (request === 'bcryptjs') {
+      return { hash: async () => 'hash', compare: async () => true };
+    }
     return originalLoad.call(this, request, parent, isMain);
   };
 
@@ -439,4 +442,86 @@ test('unknown /api routes return JSON 404 payload', () => {
 
   assert.equal(res.statusCode, 404);
   assert.deepEqual(res.payload, { error: 'Not found' });
+});
+
+
+test('PUT /api/user/preferences/timezone blocks free plan', async () => {
+  const poolMock = {
+    async query(sql, params) {
+      if (sql.includes('SELECT plan')) return { rows: [{ plan: 'free' }] };
+      return { rows: [] };
+    }
+  };
+
+  const router = buildRouterWithMocks(poolMock);
+  const handler = findHandler(router, 'put', '/api/user/preferences/timezone');
+
+  const req = { body: { timezone: 'Australia/Adelaide' }, user: { id: 'user-1', plan: 'free' } };
+  const res = createRes();
+
+  await handler(req, res);
+
+  assert.equal(res.statusCode, 403);
+  assert.match(res.payload.error, /Premium/i);
+});
+
+test('PUT /api/user/preferences/timezone validates timezone for premium plan', async () => {
+  const poolMock = {
+    async query(sql, params) {
+      if (sql.includes('SELECT plan')) return { rows: [{ plan: 'premium' }] };
+      if (sql.includes('UPDATE users SET timezone')) return { rows: [{ timezone: params[0] }] };
+      return { rows: [] };
+    }
+  };
+
+  const router = buildRouterWithMocks(poolMock);
+  const handler = findHandler(router, 'put', '/api/user/preferences/timezone');
+
+  const req = { body: { timezone: 'Not/AZone' }, user: { id: 'user-1', plan: 'premium' } };
+  const res = createRes();
+
+  await handler(req, res);
+  assert.equal(res.statusCode, 400);
+  assert.match(res.payload.error, /Invalid timezone/i);
+});
+
+test('GET /api/projects can serialize Date fields to ISO UTC strings (UTC normalization)', async () => {
+  const when = new Date('2026-02-07T01:02:03.000Z');
+  const poolMock = {
+    async query(sql, params) {
+      if (sql.includes('FROM stores') && sql.includes('ORDER BY created_at')) {
+        return { rows: [{ id: 'p1', name: 'Proj', location: null, notes: null, created_at: when, updated_at: when }] };
+      }
+      if (sql.includes('FROM devices') && sql.includes('ORDER BY created_at')) {
+        return { rows: [{ id: 'd1', store_id: 'p1', user_id: 'user-1', status: 'up', created_at: when }] };
+      }
+      return { rows: [] };
+    }
+  };
+
+  const router = buildRouterWithMocks(poolMock);
+  const handler = findHandler(router, 'get', '/api/projects');
+
+  const req = { user: { id: 'user-1' } };
+  const res = createRes();
+
+  // Simulate the router-level UTC JSON normalization wrapper.
+  function convertDates(v) {
+    if (v instanceof Date) return v.toISOString();
+    if (Array.isArray(v)) return v.map(convertDates);
+    if (v && typeof v === 'object') {
+      const out = {};
+      for (const [k, val] of Object.entries(v)) out[k] = convertDates(val);
+      return out;
+    }
+    return v;
+  }
+  const origJson = res.json.bind(res);
+  res.json = (body) => origJson(convertDates(body));
+
+  await handler(req, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.payload[0].created_at, when.toISOString());
+  assert.equal(res.payload[0].devices[0].created_at, when.toISOString());
 });

@@ -48,3 +48,10 @@ function createScrollLock(win = window, doc = document) {
 
   return { lock, unlock, reset };
 }
+
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = createScrollLock;
+} else {
+  window.createScrollLock = createScrollLock;
+}

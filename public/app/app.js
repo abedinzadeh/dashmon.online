@@ -8,6 +8,7 @@
 
   const state = {
     user: null,
+    timeZone: null,
     projects: [],
     expanded: new Set(),
     tvMode: false,
@@ -15,6 +16,14 @@
     lastDownCount: 0,
     emailAlert: { enabled: false, cooldownMinutes: 30, to: [] }
   };
+
+
+function fmtDateTime(value) {
+  if (window.formatDateTime) return window.formatDateTime(value, { timeZone: state.timeZone || 'UTC' });
+  // fallback
+  try { return new Date(value).toISOString(); } catch (_) { return ''; }
+}
+
 
 
   // Chart instances
@@ -726,7 +735,7 @@ function bindTvSummaryCards() {
     $('deviceDetailsIp').textContent = d.ip || '';
     $('deviceDetailsStatus').textContent = (d.status || 'unknown').toUpperCase();
     $('deviceDetailsStatusDot').className = 'status-dot ' + statusClass(d.status || 'unknown');
-    $('deviceDetailsLastCheck').textContent = d.last_check ? new Date(d.last_check).toLocaleString() : 'Never';
+    $('deviceDetailsLastCheck').textContent = d.last_check ? fmtDateTime(d.last_check) : 'Never';
     $('deviceDetailsLoss').textContent = (d.packet_loss ?? '-') + '';
     $('deviceDetailsUrl').textContent = d.url || '-';
 
@@ -748,7 +757,7 @@ function bindTvSummaryCards() {
         const listEl = $('deviceDetailsHistory');
         if (listEl) {
           listEl.innerHTML = hist.slice(-30).reverse().map(x => {
-            const t = new Date(x.ts).toLocaleString();
+            const t = fmtDateTime(x.ts);
             const s = String(x.status || '').toUpperCase();
             const l = (x.latency_ms == null ? '-' : x.latency_ms + 'ms');
             return `<div class="flex justify-between gap-3 py-1 border-b border-white/5"><span>${t}</span><span>${s}</span><span>${l}</span></div>`;
@@ -882,4 +891,58 @@ function bindTvSummaryCards() {
       alert('Dashboard error: ' + (e?.message || e));
     });
   });
+
+
+function openTimezoneModal() {
+  const modal = $('timezoneModal');
+  if (!modal) return;
+  $('timezoneInput').value = state.timeZone || '';
+  modal.classList.remove('hidden');
+  if (window.__scrollLock) window.__scrollLock.lock();
+}
+
+function closeTimezoneModal() {
+  const modal = $('timezoneModal');
+  if (!modal) return;
+  modal.classList.add('hidden');
+  if (window.__scrollLock) window.__scrollLock.unlock();
+}
+
+async function saveTimezonePreference() {
+  const tz = String($('timezoneInput').value || '').trim();
+
+  if ((state.user?.plan || 'free') !== 'premium') {
+    alert('Timezone preference is available on Premium plan only.');
+    return;
+  }
+
+  const r = await fetch('/api/user/preferences/timezone', {
+    method: 'PUT',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ timezone: tz || null })
+  });
+
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    alert(j?.error || 'Failed to update timezone');
+    return;
+  }
+
+  state.timeZone = j?.preferences?.timezone || null;
+  closeTimezoneModal();
+  // Re-render timestamps on screen
+  try { await refresh(); } catch (_) {}
+}
+
+
+
+function wireTimezoneUi() {
+  const tzBtn = $('timezoneBtn');
+  if (tzBtn) tzBtn.addEventListener('click', openTimezoneModal);
+  const cancel = $('cancelTimezone');
+  if (cancel) cancel.addEventListener('click', closeTimezoneModal);
+  const save = $('saveTimezone');
+  if (save) save.addEventListener('click', saveTimezonePreference);
+}
 })();

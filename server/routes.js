@@ -12,6 +12,26 @@ const { createMemoryRateLimiter } = require('./rate-limit');
 const router = express.Router();
 router.use(express.json());
 
+// --- UTC normalization ---
+// Server returns ISO 8601 UTC strings for any Date objects in JSON responses.
+function _convertDatesToIsoUtc(value) {
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) return value.map(_convertDatesToIsoUtc);
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) out[k] = _convertDatesToIsoUtc(v);
+    return out;
+  }
+  return value;
+}
+
+router.use((req, res, next) => {
+  const originalJson = res.json.bind(res);
+  res.json = (body) => originalJson(_convertDatesToIsoUtc(body));
+  next();
+});
+
+
 // --- Health (public) ---
 // Used by smoke tests / load balancers to validate app + DB connectivity.
 router.get('/api/health', async (_req, res) => {
@@ -105,7 +125,8 @@ router.get('/api/me', requireAuth, (req, res) => {
     id: req.user.id,
     email: req.user.email,
     name: req.user.name,
-    plan: req.user.plan
+    plan: req.user.plan,
+    timezone: req.user.timezone || null
   });
 });
 
@@ -771,6 +792,69 @@ router.get('/api/metrics/down-events', requireAuth, async (req, res) => {
   } catch (e) {
     console.error('Error metrics down-events:', e);
     res.status(500).json({ error: 'Failed to fetch metrics' });
+  }
+});
+
+
+
+// --- User preferences (timezone) ---
+function isValidIanaTimeZone(tz) {
+  if (!tz || typeof tz !== 'string') return false;
+  try {
+    // Throws RangeError for invalid tz
+    new Intl.DateTimeFormat('en-US', { timeZone: tz }).format(new Date());
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+router.get('/api/user/preferences', requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT timezone FROM users WHERE id=$1', [req.user.id]);
+    const timezone = rows[0]?.timezone || null;
+    res.json({ preferences: { timezone } });
+  } catch (e) {
+    console.error('Error fetching user preferences:', e);
+    res.status(500).json({ error: 'Failed to fetch preferences' });
+  }
+});
+
+router.put('/api/user/preferences/timezone', requireAuth, async (req, res) => {
+  const tz = (req.body && typeof req.body.timezone === 'string') ? req.body.timezone.trim() : '';
+
+  // Premium-only preference
+  try {
+    const dbPlan = await getUserPlanFromDb(pool, req.user.id);
+    if (dbPlan !== 'premium') {
+      return res.status(403).json({ error: 'Timezone preference is available on Premium plan only' });
+    }
+  } catch (e) {
+    console.error('Error checking plan for timezone pref:', e);
+    return res.status(500).json({ error: 'Failed to verify plan' });
+  }
+
+  if (!tz) {
+    // Allow clearing preference
+    try {
+      await pool.query('UPDATE users SET timezone=NULL WHERE id=$1', [req.user.id]);
+      return res.json({ preferences: { timezone: null } });
+    } catch (e) {
+      console.error('Error clearing timezone:', e);
+      return res.status(500).json({ error: 'Failed to update timezone' });
+    }
+  }
+
+  if (!isValidIanaTimeZone(tz)) {
+    return res.status(400).json({ error: 'Invalid timezone (must be an IANA timezone like Australia/Adelaide)' });
+  }
+
+  try {
+    const { rows } = await pool.query('UPDATE users SET timezone=$1 WHERE id=$2 RETURNING timezone', [tz, req.user.id]);
+    res.json({ preferences: { timezone: rows[0]?.timezone || tz } });
+  } catch (e) {
+    console.error('Error updating timezone:', e);
+    res.status(500).json({ error: 'Failed to update timezone' });
   }
 });
 

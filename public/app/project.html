@@ -9,6 +9,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="./scroll-lock.js"></script>
   <script src="./chart-lifecycle.js"></script>
+<script src="./date-format.js"></script>
 </head>
 <body class="bg-gray-900 text-white min-h-screen">
   <div class="max-w-6xl mx-auto px-4 py-6">
@@ -143,6 +144,23 @@
 <script>
 (function(){
   const $ = (id)=>document.getElementById(id);
+let userTz = null;
+
+async function loadTimezonePreference() {
+  try {
+    const r = await fetch('/api/user/preferences', { credentials: 'include' });
+    if (r.ok) {
+      const j = await r.json();
+      userTz = j?.preferences?.timezone || null;
+    }
+  } catch (_) {}
+}
+
+function fmt(value) {
+  if (window.formatDateTime) return window.formatDateTime(value, { timeZone: userTz || 'UTC' });
+  try { return new Date(value).toISOString(); } catch (_) { return ''; }
+}
+
   const qs = new URLSearchParams(location.search);
   const projectId = qs.get('projectId');
   let devicesCache = [];
@@ -271,7 +289,7 @@
     document.getElementById('pdSub').textContent = `${device.type||'other'} • ${device.ip||''}`;
     document.getElementById('pdStatus').textContent = (device.status||'unknown').toUpperCase();
     document.getElementById('pdStatusDot').className = `inline-block w-3 h-3 rounded-full ${statusDotColor(device.status)}`;
-    document.getElementById('pdLast').textContent = device.last_check ? new Date(device.last_check).toLocaleString() : 'Never';
+    document.getElementById('pdLast').textContent = device.last_check ? fmt(device.last_check) : 'Never';
 
     // store context
     document.getElementById('pdTestNow').dataset.deviceId = device.id;
@@ -282,7 +300,15 @@
     const hr = await apiFetch(`/api/devices/${encodeURIComponent(device.id)}/history?limit=60`);
     if(hr.ok && typeof Chart!=='undefined'){
       const hist = (await hr.json()).history || [];
-      const labels = hist.map(h => new Date(h.ts).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}));
+      const labels = hist.map(h => {
+        const d = new Date(h.ts);
+        if (Number.isNaN(d.getTime())) return '';
+        try {
+          return new Intl.DateTimeFormat('en-AU', { timeZone: userTz || 'UTC', hour: '2-digit', minute: '2-digit', hour12: false }).format(d);
+        } catch (_) {
+          return d.toISOString().slice(11, 16);
+        }
+      });
       const values = hist.map(h => (h.latency_ms==null ? null : Number(h.latency_ms)));
       if(deviceChart){
         deviceChart.data.labels = labels;
@@ -298,7 +324,7 @@
 
       const list = document.getElementById('pdHistory');
       list.innerHTML = hist.slice(-30).reverse().map(h=>{
-        const t = new Date(h.ts).toLocaleString();
+        const t = fmt(h.ts);
         const s = (h.status||'').toUpperCase();
         const l = h.latency_ms==null ? '-' : `${h.latency_ms}ms`;
         return `<div class="flex justify-between gap-3 py-1 border-b border-white/5"><span>${t}</span><span>${s}</span><span>${l}</span></div>`;
@@ -487,6 +513,8 @@
   }
 
   document.addEventListener('DOMContentLoaded', async ()=>{
+  await loadTimezonePreference();
+
     window.addEventListener('beforeunload', ()=>{
       if(deviceChart){ deviceChart.destroy(); deviceChart = null; }
       pendingSparkTimeouts.forEach((id) => clearTimeout(id));
