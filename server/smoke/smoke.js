@@ -77,6 +77,10 @@ async function main() {
   assert(health && health.ok === true, `/api/health payload missing ok:true (got: ${JSON.stringify(health).slice(0, 200)})`);
   ok('Health endpoint');
 
+  // 1b) Public SEO integrity
+  await seoChecks();
+  ok('SEO files + metadata');
+
   // 2) Login
   assert(IDENTIFIER, 'SMOKE_IDENTIFIER is required (email or username)');
   assert(PASSWORD, 'SMOKE_PASSWORD is required');
@@ -139,3 +143,36 @@ async function main() {
 }
 
 main().catch((e) => fail('Unhandled error', e && e.stack ? e.stack : e));
+
+
+async function seoChecks() {
+  // SEO checks for public pages
+  const robots = await httpGetText('/robots.txt');
+  assert(robots.includes('User-agent:'), 'robots.txt missing User-agent');
+  assert(robots.toLowerCase().includes('sitemap:'), 'robots.txt missing Sitemap');
+  assert(robots.includes('https://dashmon.online/sitemap.xml'), 'robots.txt sitemap url is not canonical');
+
+  const sitemap = await httpGetText('/sitemap.xml');
+  assert(sitemap.includes('<urlset'), 'sitemap.xml missing <urlset>');
+  assert(sitemap.includes('https://dashmon.online/'), 'sitemap.xml missing homepage URL');
+  assert(sitemap.includes('https://dashmon.online/login.html'), 'sitemap.xml missing login URL');
+
+  const homeHtml = await httpGetText('/');
+  assert(/<meta\s+name=["']description["']\s+content=["'][^"']{50,180}["']\s*\/>?/i.test(homeHtml), 'Homepage missing meta description (50-180 chars)');
+  assert(/<link\s+rel=["']canonical["']\s+href=["']https:\/\/dashmon\.online\/?["']\s*\/>?/i.test(homeHtml), 'Homepage missing/invalid canonical URL');
+  assert(/property=["']og:title["']/i.test(homeHtml), 'Homepage missing og:title');
+  assert(/property=["']og:description["']/i.test(homeHtml), 'Homepage missing og:description');
+  assert(/property=["']og:image["']\s+content=["']https:\/\/dashmon\.online\/og-image\.png["']/i.test(homeHtml), 'Homepage missing/invalid og:image');
+  assert(/name=["']twitter:card["']\s+content=["']summary_large_image["']/i.test(homeHtml), 'Homepage missing twitter:card');
+  assert(/application\/ld\+json/i.test(homeHtml) && /"@type"\s*:\s*"SoftwareApplication"/i.test(homeHtml), 'Homepage missing SoftwareApplication JSON-LD');
+  assert((homeHtml.match(/<svg[^>]*aria-label=/gi) || []).length >= 1, 'Homepage SVG icons missing aria-label');
+
+  const loginHtml = await httpGetText('/login.html');
+  assert(/<meta\s+name=["']description["']/i.test(loginHtml), 'Login page missing meta description');
+  assert(/<link\s+rel=["']canonical["']\s+href=["']https:\/\/dashmon\.online\/login\.html["']/i.test(loginHtml), 'Login page missing canonical URL');
+
+  // Verify OG image exists (served)
+  const ogRes = await http('/og-image.png');
+  assert(ogRes.status === 200, 'og-image.png not reachable (HTTP ' + ogRes.status + ')');
+}
+
