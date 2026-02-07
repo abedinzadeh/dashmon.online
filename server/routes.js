@@ -232,8 +232,12 @@ router.get('/logout', (_req, res) => res.redirect('/login.html'));
 // --- Projects (formerly "stores") ---
 // NOTE: We keep DB table name "stores" but UI uses "projects".
 async function getProjectsWithDevices(userId) {
+  // Include maintenance window columns so frontend can render project maintenance state
+  // and so we can correctly compute device maintenance suppression from store maintenance.
   const { rows: projects } = await pool.query(
-    `SELECT id, name, location, notes, created_at, updated_at
+    `SELECT id, name, location, notes,
+            maintenance_start, maintenance_end,
+            created_at, updated_at
      FROM stores
      WHERE user_id = $1
      ORDER BY created_at DESC`,
@@ -466,7 +470,9 @@ router.get('/api/projects/:projectId', requireAuth, async (req, res) => {
   const projectId = req.params.projectId;
   try {
     const { rows } = await pool.query(
-      `SELECT id, name, location, notes, created_at, updated_at
+      `SELECT id, name, location, notes,
+              maintenance_start, maintenance_end,
+              created_at, updated_at
        FROM stores
        WHERE user_id=$1 AND id=$2`,
       [req.user.id, projectId]
@@ -490,7 +496,9 @@ router.put('/api/projects/:projectId', requireAuth, async (req, res) => {
       `UPDATE stores
          SET name=$3, location=$4, notes=$5, updated_at=NOW()
        WHERE user_id=$1 AND id=$2
-       RETURNING id, name, location, notes, created_at, updated_at`,
+       RETURNING id, name, location, notes,
+                 maintenance_start, maintenance_end,
+                 created_at, updated_at`,
       [req.user.id, projectId, name, location || null, notes || null]
     );
     if (!rows.length) return res.status(404).json({ error: 'Project not found' });

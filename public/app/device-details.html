@@ -183,6 +183,14 @@
     return now >= s && (!e || now <= e);
   }
 
+  // Scheduled (but not yet active) maintenance window
+  function isMaintenanceScheduled(startIso){
+    if(!startIso) return false;
+    const now = Date.now();
+    const s = new Date(startIso).getTime();
+    return now < s;
+  }
+
   function maintenanceSummary(startIso, endIso){
     if(!startIso) return '';
     const s = new Date(startIso).toLocaleString();
@@ -231,10 +239,16 @@
     const line = $('projectMaintenanceLine');
     if(!line) return;
     const active = !!project.maintenanceActive || isMaintenanceActive(project.maintenance_start, project.maintenance_end);
+    const scheduled = !active && isMaintenanceScheduled(project.maintenance_start);
     project.maintenanceActive = active;
     if(active){
       line.innerHTML = `<div class="inline-flex items-center gap-2 text-sm text-purple-200">
         <span class="px-2 py-0.5 rounded-full bg-purple-500/20 border border-purple-400/30 font-semibold">MAINTENANCE</span>
+        <span>${escapeHtml(maintenanceSummary(project.maintenance_start, project.maintenance_end))}</span>
+      </div>`;
+    } else if (scheduled) {
+      line.innerHTML = `<div class="inline-flex items-center gap-2 text-sm text-purple-200">
+        <span class="px-2 py-0.5 rounded-full bg-purple-500/20 border border-purple-400/30 font-semibold">SCHEDULED</span>
         <span>${escapeHtml(maintenanceSummary(project.maintenance_start, project.maintenance_end))}</span>
       </div>`;
     } else {
@@ -367,7 +381,11 @@ function bindProjectMaintenanceUI(){
       fillDateTimeLocal('projectMaintEnd', currentProject.maintenance_end);
 
       const premium = canUseMaintenance();
-      if(upgradeHint) upgradeHint.classList.toggle('hidden', premium);
+      // Keep this robust even if the element was created with inline style instead of Tailwind's `hidden` class.
+      if(upgradeHint){
+        if('style' in upgradeHint) upgradeHint.style.display = premium ? 'none' : 'block';
+        upgradeHint.classList.toggle('hidden', premium);
+      }
 
       [startEl,endEl,saveBtn,clearBtn].forEach(el=>{
         if(!el) return;
@@ -438,9 +456,13 @@ function bindProjectMaintenanceUI(){
       list.innerHTML = '<div class="text-gray-400">No devices yet.</div>';
       return;
     }
+    // If the project has a maintenance window set (active OR scheduled), treat it as “project maintenance enabled”
+    // and tint all devices purple, matching the expected UX.
+    const projectMaintEnabled = !!(currentProject && currentProject.maintenance_start);
+
     devices.forEach(d=>{
       const div=document.createElement('div');
-      const maintActive = !!d.maintenanceActive || isMaintenanceActive(d.maintenance_start, d.maintenance_end);
+      const maintActive = projectMaintEnabled || !!d.maintenanceActive || isMaintenanceActive(d.maintenance_start, d.maintenance_end);
       d.maintenanceActive = maintActive;
       div.className = maintActive
         ? 'p-4 rounded-xl bg-purple-900/20 border border-purple-500/30 flex items-center justify-between gap-3'
@@ -761,6 +783,11 @@ function bindProjectMaintenanceUI(){
     });
     document.getElementById('pdEditCancel').addEventListener('click', hideEditPanel);
     document.getElementById('pdEditForm').addEventListener('submit', saveEdit);
+
+    // Maintenance modals
+    // (These were previously implemented but never actually bound, so the big Project Maintenance button did nothing.)
+    bindProjectMaintenanceUI();
+    wireDeviceMaintenanceModalClose();
 
     load();
   });
