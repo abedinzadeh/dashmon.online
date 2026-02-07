@@ -3,6 +3,7 @@ const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const LocalStrategy = require('passport-local').Strategy;
 const bcrypt = require('bcryptjs');
 const { pool } = require('./db');
+const { requirePremium } = require('./require-premium');
 
 passport.serializeUser((user, done) => done(null, user.id));
 passport.deserializeUser(async (id, done) => {
@@ -88,4 +89,5 @@ function requireAuth(req, res, next) {
   return res.redirect('/login.html');
 }
 
-module.exports = { passport, requireAuth };
+module.exports = { passport, requireAuth, requirePremium };
+

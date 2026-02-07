@@ -1,0 +1,22 @@
+const { normalizePlan } = require('./plan-limits');
+
+function requirePremium(req, res, next) {
+  const plan = normalizePlan(req.user?.plan);
+  if (plan === 'premium') return next();
+
+  const wantsJson =
+    req.path.startsWith('/api/') ||
+    (req.headers.accept && req.headers.accept.includes('application/json')) ||
+    req.xhr;
+
+  if (wantsJson) {
+    return res.status(403).json({
+      error: 'premium_required',
+      message: 'This feature is available on the Premium plan only.'
+    });
+  }
+
+  return res.redirect('/app/pricing.html');
+}
+
+module.exports = { requirePremium };

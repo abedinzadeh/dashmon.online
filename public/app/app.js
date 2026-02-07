@@ -257,6 +257,12 @@ function ensureLineChart(canvasId, label, points, existing) {
       badge.className = 'ml-3 px-2 py-1 rounded-full text-xs font-bold ' +
         (state.user.plan === 'premium' ? 'bg-yellow-600 text-black' : 'bg-gray-700 text-white');
     }
+
+    const upgrade = $('upgradePageBtn');
+    if (upgrade && state.user) {
+      if (state.user.plan === 'premium') upgrade.classList.add('hidden');
+      else upgrade.classList.remove('hidden');
+    }
     const soundToggle = $('soundToggle');
     if (soundToggle) {
       soundToggle.innerHTML = state.soundOn

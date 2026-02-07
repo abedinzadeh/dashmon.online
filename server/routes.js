@@ -1,6 +1,7 @@
 const express = require('express');
 const { pool } = require('./db');
 const { requireAuth, passport } = require('./auth');
+const { requirePremium } = require('./require-premium');
 const bcrypt = require('bcryptjs');
 const {
   getPlanLimits: resolvePlanLimits,
@@ -128,6 +129,68 @@ router.get('/api/me', requireAuth, (req, res) => {
     plan: req.user.plan,
     timezone: req.user.timezone || null
   });
+});
+
+// --- Billing / subscription (placeholder) ---
+// This is intentionally a basic stub. Wire this up to Stripe/Chargebee later.
+router.get('/api/billing/plans', (_req, res) => {
+  res.json({
+    plans: [
+      {
+        id: 'free',
+        name: 'Free',
+        price: 0,
+        currency: 'USD',
+        interval: 'month',
+        features: ['Up to 3 projects', 'Up to 15 devices per project', 'Checks every 2 hours']
+      },
+      {
+        id: 'premium',
+        name: 'Premium',
+        price: 19,
+        currency: 'USD',
+        interval: 'month',
+        features: ['Up to 10 projects', 'Up to 15 devices per project', 'Checks every 15 minutes', 'Manual test-now', 'Timezone preference']
+      }
+    ]
+  });
+});
+
+router.post('/api/billing/checkout', requireAuth, async (req, res) => {
+  // Placeholder: return a "checkout session" object for the UI.
+  // In a real implementation, create a Stripe checkout session and return its URL.
+  res.json({
+    ok: true,
+    provider: 'placeholder',
+    message: 'Checkout flow is not configured yet. This is a placeholder endpoint.',
+    next: '/app/pricing.html'
+  });
+});
+
+router.get('/api/billing/test-mode', requireAuth, (req, res) => {
+  const enabled = String(process.env.BILLING_ALLOW_TEST_UPGRADE || '').toLowerCase() === 'true';
+  res.json({ enabled });
+});
+
+// Optional: enable a safe test-only upgrade path (for CI/tests/demo environments).
+// Set BILLING_ALLOW_TEST_UPGRADE=true to enable.
+router.post('/api/billing/simulate-upgrade', requireAuth, async (req, res) => {
+  if (String(process.env.BILLING_ALLOW_TEST_UPGRADE || '').toLowerCase() !== 'true') {
+    return res.status(404).json({ error: 'Not found' });
+  }
+
+  const requested = String(req.body?.plan || 'premium').trim().toLowerCase();
+  const plan = requested === 'free' ? 'free' : 'premium';
+
+  try {
+    const { rows } = await pool.query('UPDATE users SET plan=$1 WHERE id=$2 RETURNING plan', [plan, req.user.id]);
+    // Keep req.user in sync for this request.
+    if (req.user) req.user.plan = rows[0]?.plan || plan;
+    res.json({ ok: true, plan: rows[0]?.plan || plan });
+  } catch (e) {
+    console.error('simulate-upgrade error', e);
+    res.status(500).json({ error: 'Failed to update plan' });
+  }
 });
 
 // Logout should always work (even if session is half-broken)
@@ -534,20 +597,10 @@ router.get('/api/projects/:projectId/devices/:deviceId', requireAuth, async (req
 });
 
 // Queue a device for immediate check (worker looks at last_check)
-router.post('/api/devices/:deviceId/test-now', requireAuth, async (req, res) => {
+router.post('/api/devices/:deviceId/test-now', requireAuth, requirePremium, async (req, res) => {
   const { deviceId } = req.params;
 
-  // Fast path: free plan blocked WITHOUT hitting DB (tests expect this)
-  if (req.user.plan !== 'premium') {
-    return res.status(403).json({ error: 'Manual test is available on Premium plan only' });
-  }
-
   try {
-    const dbPlan = await getUserPlanFromDb(pool, req.user.id);
-    if (dbPlan !== 'premium') {
-      return res.status(403).json({ error: 'Manual test is available on Premium plan only' });
-    }
-
     const { rows } = await pool.query(
       "UPDATE devices SET last_check = now() - interval '365 days' WHERE id=$1 AND user_id=$2 RETURNING id",
       [deviceId, req.user.id]
@@ -820,19 +873,8 @@ router.get('/api/user/preferences', requireAuth, async (req, res) => {
   }
 });
 
-router.put('/api/user/preferences/timezone', requireAuth, async (req, res) => {
+router.put('/api/user/preferences/timezone', requireAuth, requirePremium, async (req, res) => {
   const tz = (req.body && typeof req.body.timezone === 'string') ? req.body.timezone.trim() : '';
-
-  // Premium-only preference
-  try {
-    const dbPlan = await getUserPlanFromDb(pool, req.user.id);
-    if (dbPlan !== 'premium') {
-      return res.status(403).json({ error: 'Timezone preference is available on Premium plan only' });
-    }
-  } catch (e) {
-    console.error('Error checking plan for timezone pref:', e);
-    return res.status(500).json({ error: 'Failed to verify plan' });
-  }
 
   if (!tz) {
     // Allow clearing preference

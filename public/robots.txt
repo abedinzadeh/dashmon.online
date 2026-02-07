@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+
+# Private app and API
+Disallow: /app/
+Disallow: /api/
+Disallow: /auth/
+Disallow: /logout
+
+Sitemap: https://dashmon.online/sitemap.xml

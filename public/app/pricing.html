@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashmon Pricing</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+  <nav class="bg-gray-900 text-white p-4 flex items-center justify-between sticky top-0 z-50">
+    <div class="flex items-center gap-3">
+      <i class="fas fa-bolt text-blue-400"></i>
+      <div class="font-bold">Dashmon</div>
+      <span class="text-xs bg-slate-800 px-2 py-1 rounded-full">Pricing</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <a href="/app/" class="bg-slate-800 hover:bg-slate-700 px-3 py-2 rounded-lg text-sm">
+        <i class="fas fa-arrow-left mr-2"></i>Back to Dashboard
+      </a>
+      <button id="logoutBtn" class="bg-red-600 hover:bg-red-700 px-3 py-2 rounded-lg text-sm">
+        <i class="fas fa-sign-out-alt mr-2"></i>Logout
+      </button>
+    </div>
+  </nav>
+
+  <main class="max-w-5xl mx-auto px-4 py-8">
+    <div class="mb-6">
+      <h1 class="text-3xl font-extrabold">Plans</h1>
+      <p class="text-slate-300 mt-2">Upgrade to Premium to unlock faster checks and Premium-only actions.</p>
+    </div>
+
+    <div id="statusBanner" class="hidden mb-6 rounded-xl border border-slate-800 bg-slate-900 p-4">
+      <div class="flex items-start gap-3">
+        <i class="fas fa-circle-info text-blue-400 mt-1"></i>
+        <div>
+          <div class="font-semibold" id="statusTitle">Status</div>
+          <div class="text-slate-300 text-sm" id="statusText"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid md:grid-cols-2 gap-6">
+      <div class="rounded-2xl border border-slate-800 bg-slate-900 p-6">
+        <div class="flex items-center justify-between">
+          <h2 class="text-xl font-bold">Free</h2>
+          <span class="text-xs bg-slate-800 px-2 py-1 rounded-full">Current for most users</span>
+        </div>
+        <div class="mt-4 text-4xl font-extrabold">$0<span class="text-base font-medium text-slate-400">/mo</span></div>
+        <ul class="mt-5 space-y-2 text-slate-200">
+          <li><i class="fas fa-check text-green-400 mr-2"></i>Up to <b>3 projects</b></li>
+          <li><i class="fas fa-check text-green-400 mr-2"></i>Up to <b>15 devices</b> per project</li>
+          <li><i class="fas fa-check text-green-400 mr-2"></i>Checks every <b>2 hours</b></li>
+        </ul>
+        <div class="mt-6">
+          <button id="downgradeBtn" class="hidden w-full bg-slate-800 hover:bg-slate-700 py-2 rounded-xl">
+            Switch to Free
+          </button>
+        </div>
+      </div>
+
+      <div class="rounded-2xl border border-yellow-800/50 bg-gradient-to-b from-slate-900 to-slate-950 p-6">
+        <div class="flex items-center justify-between">
+          <h2 class="text-xl font-bold">Premium</h2>
+          <span class="text-xs bg-yellow-600 text-black px-2 py-1 rounded-full font-semibold">Recommended</span>
+        </div>
+        <div class="mt-4 text-4xl font-extrabold">$19<span class="text-base font-medium text-slate-400">/mo</span></div>
+        <ul class="mt-5 space-y-2 text-slate-200">
+          <li><i class="fas fa-check text-green-400 mr-2"></i>Up to <b>10 projects</b></li>
+          <li><i class="fas fa-check text-green-400 mr-2"></i>Up to <b>15 devices</b> per project</li>
+          <li><i class="fas fa-check text-green-400 mr-2"></i>Checks every <b>15 minutes</b></li>
+          <li><i class="fas fa-check text-green-400 mr-2"></i><b>Manual Test Now</b> per device</li>
+          <li><i class="fas fa-check text-green-400 mr-2"></i><b>Timezone preference</b></li>
+        </ul>
+        <div class="mt-6 space-y-2">
+          <button id="upgradeBtn" class="w-full bg-yellow-600 hover:bg-yellow-500 text-black font-semibold py-2 rounded-xl">
+            Upgrade to Premium
+          </button>
+          <button id="demoUpgradeBtn" class="hidden w-full bg-slate-800 hover:bg-slate-700 py-2 rounded-xl">
+            Activate Premium (Demo)
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-10 rounded-2xl border border-slate-800 bg-slate-900 p-6">
+      <h3 class="text-lg font-bold">Payment integration</h3>
+      <p class="text-slate-300 mt-2">
+        This build includes a placeholder purchase flow. To connect real subscriptions, wire <code class="bg-slate-800 px-2 py-1 rounded">/api/billing/checkout</code>
+        to your billing provider (Stripe/Chargebee) and handle webhook updates to set the user <code class="bg-slate-800 px-2 py-1 rounded">plan</code>.
+      </p>
+    </div>
+  </main>
+
+  <script>
+    async function apiFetch(url, opts = {}) {
+      const o = Object.assign({ credentials: 'include' }, opts);
+      if (o.body && typeof o.body === 'object') {
+        o.headers = Object.assign({ 'Content-Type': 'application/json' }, o.headers || {});
+        o.body = JSON.stringify(o.body);
+      }
+      return fetch(url, o);
+    }
+
+    function showBanner(title, text) {
+      const box = document.getElementById('statusBanner');
+      if (!box) return;
+      box.classList.remove('hidden');
+      document.getElementById('statusTitle').textContent = title;
+      document.getElementById('statusText').textContent = text;
+    }
+
+    async function loadMe() {
+      const r = await apiFetch('/api/me', { redirect: 'manual' });
+      if (!r.ok) {
+        window.location.href = '/login.html';
+        return null;
+      }
+      return r.json();
+    }
+
+    async function init() {
+      const me = await loadMe();
+      if (!me) return;
+
+      if (me.plan === 'premium') {
+        showBanner('You are Premium', 'Premium features are unlocked for your account.');
+        document.getElementById('upgradeBtn').disabled = true;
+        document.getElementById('upgradeBtn').textContent = 'Premium active';
+        document.getElementById('downgradeBtn').classList.remove('hidden');
+      } else {
+        showBanner('You are on Free', 'Upgrade to Premium to unlock faster checks and Premium-only actions.');
+      }
+
+      document.getElementById('upgradeBtn').addEventListener('click', async () => {
+        const res = await apiFetch('/api/billing/checkout', { method: 'POST' });
+        const payload = await res.json().catch(() => null);
+        if (!res.ok) {
+          alert(payload?.error || 'Failed to start checkout');
+          return;
+        }
+        alert(payload?.message || 'Checkout placeholder');
+      });
+
+      // Demo-only upgrade path (optional)
+      const testMode = await apiFetch('/api/billing/test-mode').then(r => r.json()).catch(() => ({ enabled: false }));
+      if (testMode.enabled) {
+        const btn = document.getElementById('demoUpgradeBtn');
+        btn.classList.remove('hidden');
+        btn.addEventListener('click', async () => {
+          const desired = me.plan === 'premium' ? 'free' : 'premium';
+          const r = await apiFetch('/api/billing/simulate-upgrade', { method: 'POST', body: { plan: desired } });
+          const p = await r.json().catch(() => null);
+          if (!r.ok) {
+            alert(p?.error || 'Failed');
+            return;
+          }
+          window.location.reload();
+        });
+
+        const downBtn = document.getElementById('downgradeBtn');
+        downBtn.addEventListener('click', async () => {
+          const r = await apiFetch('/api/billing/simulate-upgrade', { method: 'POST', body: { plan: 'free' } });
+          const p = await r.json().catch(() => null);
+          if (!r.ok) {
+            alert(p?.error || 'Failed');
+            return;
+          }
+          window.location.reload();
+        });
+      }
+
+      document.getElementById('logoutBtn').addEventListener('click', async () => {
+        await apiFetch('/logout', { method: 'POST' }).catch(() => null);
+        window.location.href = '/login.html';
+      });
+    }
+
+    init().catch((e) => {
+      console.error(e);
+      showBanner('Error', 'Failed to load pricing page.');
+    });
+  </script>
+</body>
+</html>

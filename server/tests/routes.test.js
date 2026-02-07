@@ -109,6 +109,60 @@ function createRes() {
   };
 }
 
+function getRouteHandlers(router, method, routePath) {
+  const layer = router.stack.find((l) => l.route && l.route.path === routePath && l.route.methods[method]);
+  assert.ok(layer, `Could not find route ${method.toUpperCase()} ${routePath}`);
+  return layer.route.stack.map((x) => x.handle);
+}
+
+async function runHandlers(handlers, req, res) {
+  let idx = 0;
+  return new Promise((resolve, reject) => {
+    let finished = false;
+    const next = (err) => {
+      if (finished) return;
+      if (err) {
+        finished = true;
+        return reject(err);
+      }
+      const h = handlers[idx++];
+      if (!h) {
+        finished = true;
+        return resolve();
+      }
+      let nextCalled = false;
+      const localNext = (e) => {
+        nextCalled = true;
+        next(e);
+      };
+      try {
+        const out = h(req, res, localNext);
+        if (out && typeof out.then === 'function') {
+          out.then(() => {
+            if (!nextCalled) {
+              finished = true;
+              return resolve();
+            }
+          }).catch((e) => {
+            finished = true;
+            reject(e);
+          });
+        } else {
+          // Sync handler that didn't call next => assume it ended the response
+          if (!nextCalled) {
+            finished = true;
+            return resolve();
+          }
+        }
+      } catch (e) {
+        finished = true;
+        reject(e);
+      }
+    };
+    next();
+  });
+}
+
 test('GET /api/devices/:deviceId/history falls back to legacy device_history columns', async () => {
   const calls = [];
   const poolMock = {
@@ -411,21 +465,20 @@ test('POST /api/projects/:projectId/devices enforces per-project device limit', 
 test('POST /api/devices/:deviceId/test-now blocks free plan', async () => {
   const poolMock = {
     async query(sql) {
-      if (sql.includes('SELECT plan FROM users')) return { rows: [{ plan: 'free' }] };
       throw new Error('DB should not be called for free plan test-now');
     }
   };
 
   const router = buildRouterWithMocks(poolMock);
-  const handler = findHandler(router, 'post', '/api/devices/:deviceId/test-now');
+  const handlers = getRouteHandlers(router, 'post', '/api/devices/:deviceId/test-now');
 
-  const req = { params: { deviceId: 'dev-1' }, user: { id: 'user-1', plan: 'free' } };
+  const req = { params: { deviceId: 'dev-1' }, user: { id: 'user-1', plan: 'free' }, headers: { accept: 'application/json' }, path: '/api/devices/dev-1/test-now' };
   const res = createRes();
 
-  await handler(req, res);
+  await runHandlers(handlers, req, res);
 
   assert.equal(res.statusCode, 403);
-  assert.deepEqual(res.payload, { error: 'Manual test is available on Premium plan only' });
+  assert.equal(res.payload?.error, 'premium_required');
 });
 
 test('unknown /api routes return JSON 404 payload', () => {
@@ -448,21 +501,20 @@ test('unknown /api routes return JSON 404 payload', () => {
 test('PUT /api/user/preferences/timezone blocks free plan', async () => {
   const poolMock = {
     async query(sql, params) {
-      if (sql.includes('SELECT plan')) return { rows: [{ plan: 'free' }] };
       return { rows: [] };
     }
   };
 
   const router = buildRouterWithMocks(poolMock);
-  const handler = findHandler(router, 'put', '/api/user/preferences/timezone');
+  const handlers = getRouteHandlers(router, 'put', '/api/user/preferences/timezone');
 
-  const req = { body: { timezone: 'Australia/Adelaide' }, user: { id: 'user-1', plan: 'free' } };
+  const req = { body: { timezone: 'Australia/Adelaide' }, user: { id: 'user-1', plan: 'free' }, headers: { accept: 'application/json' }, path: '/api/user/preferences/timezone' };
   const res = createRes();
 
-  await handler(req, res);
+  await runHandlers(handlers, req, res);
 
   assert.equal(res.statusCode, 403);
-  assert.match(res.payload.error, /Premium/i);
+  assert.equal(res.payload?.error, 'premium_required');
 });
 
 test('PUT /api/user/preferences/timezone validates timezone for premium plan', async () => {
