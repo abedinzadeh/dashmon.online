@@ -1,9 +1,11 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Users (Google-only for v1)
+-- Users (Google + Local)
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     email TEXT UNIQUE NOT NULL,
+    username TEXT UNIQUE,
+    password_hash TEXT,
     name TEXT,
     provider TEXT NOT NULL DEFAULT 'google',
     plan TEXT NOT NULL DEFAULT 'free', -- free | premium

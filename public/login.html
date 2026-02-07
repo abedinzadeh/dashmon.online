@@ -1,428 +1,192 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - Dashmon Monitoring</title>
-	<link rel="icon" type="image/svg+xml" href="icon.svg">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-        
-        :root {
-            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            --secondary-gradient: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-        }
-        
-        * {
-            font-family: 'Inter', system-ui, -apple-system, sans-serif;
-        }
-        
-        body {
-            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
-            min-height: 100vh;
-            position: relative;
-            overflow-x: hidden;
-        }
-        
-        .login-container {
-            position: relative;
-            z-index: 2;
-        }
-        
-        .glass-card {
-            background: rgba(30, 41, 59, 0.7);
-            backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-        }
-        
-        .gradient-text {
-            background: var(--primary-gradient);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-        
-        .floating {
-            animation: floating 6s ease-in-out infinite;
-        }
-        
-        @keyframes floating {
-            0% { transform: translateY(0px); }
-            50% { transform: translateY(-20px); }
-            100% { transform: translateY(0px); }
-        }
-        
-        .pulse-animation {
-            animation: pulse 2s infinite;
-        }
-        
-        @keyframes pulse {
-            0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
-            70% { box-shadow: 0 0 0 15px rgba(59, 130, 246, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
-        }
-        
-        .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            display: inline-block;
-            margin-right: 8px;
-        }
-        
-        .online { background-color: #10b981; box-shadow: 0 0 10px #10b981; }
-        .offline { background-color: #ef4444; box-shadow: 0 0 10px #ef4444; }
-        
-        .monitor-icon {
-            width: 60px;
-            height: 60px;
-            background: linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(147, 51, 234, 0.2) 100%);
-            border: 1px solid rgba(99, 102, 241, 0.3);
-            border-radius: 16px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0 auto 20px;
-        }
-        
-        .input-field {
-            background: rgba(30, 41, 59, 0.5);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            transition: all 0.3s ease;
-        }
-        
-        .input-field:focus {
-            border-color: rgba(99, 102, 241, 0.5);
-            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
-        }
-        
-        .login-btn {
-            background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-            transition: all 0.3s ease;
-            position: relative;
-            overflow: hidden;
-        }
-        
-        .login-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 25px rgba(79, 70, 229, 0.3);
-        }
-        
-        .login-btn::after {
-            content: '';
-            position: absolute;
-            top: -50%;
-            left: -50%;
-            width: 200%;
-            height: 200%;
-            background: linear-gradient(45deg, transparent, rgba(255, 255, 255, 0.1), transparent);
-            transform: rotate(45deg);
-            transition: all 0.5s ease;
-            opacity: 0;
-        }
-        
-        .login-btn:hover::after {
-            opacity: 1;
-            transform: rotate(45deg) translate(50%, 50%);
-        }
-        
-        /* Animated background */
-        .bg-animated {
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            overflow: hidden;
-            z-index: 1;
-        }
-        
-        .bg-circle {
-            position: absolute;
-            border-radius: 50%;
-            filter: blur(60px);
-            opacity: 0.15;
-        }
-        
-        .circle-1 {
-            width: 400px;
-            height: 400px;
-            background: #4f46e5;
-            top: -200px;
-            right: -100px;
-            animation: move1 20s infinite alternate ease-in-out;
-        }
-        
-        .circle-2 {
-            width: 300px;
-            height: 300px;
-            background: #7c3aed;
-            bottom: -150px;
-            left: -100px;
-            animation: move2 25s infinite alternate ease-in-out;
-        }
-        
-        .circle-3 {
-            width: 250px;
-            height: 250px;
-            background: #3b82f6;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            animation: move3 30s infinite linear;
-        }
-        
-        @keyframes move1 {
-            0% { transform: translate(0, 0); }
-            100% { transform: translate(-50px, 50px); }
-        }
-        
-        @keyframes move2 {
-            0% { transform: translate(0, 0); }
-            100% { transform: translate(50px, -50px); }
-        }
-        
-        @keyframes move3 {
-            0% { transform: translate(-50%, -50%) rotate(0deg); }
-            100% { transform: translate(-50%, -50%) rotate(360deg); }
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Login - Dashmon</title>
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    * { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+    body { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); min-height: 100vh; }
+    .glass { background: rgba(30, 41, 59, 0.72); backdrop-filter: blur(18px); border: 1px solid rgba(255,255,255,0.10); }
+    .input { background: rgba(15, 23, 42, 0.45); border: 1px solid rgba(148, 163, 184, 0.25); }
+    .input:focus { outline: none; border-color: rgba(59,130,246,0.8); box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
+  </style>
 </head>
-<body>
-    <!-- Animated Background -->
-    <div class="bg-animated">
-        <div class="bg-circle circle-1"></div>
-        <div class="bg-circle circle-2"></div>
-        <div class="bg-circle circle-3"></div>
-    </div>
-
-    <div class="min-h-screen flex items-center justify-center p-4 login-container">
-        <div class="glass-card p-8 rounded-2xl max-w-md w-full animate__animated animate__fadeIn">
-            <!-- Logo and Title -->
-            <div class="text-center mb-8">
-                <div class="monitor-icon floating">
-                    <i class="fas fa-chart-network text-blue-400 text-2xl"></i>
-                </div>
-                <h1 class="text-3xl font-bold mb-2 flex items-center justify-center">
-                    <span class="gradient-text">Dashmon</span>
-                </h1>
-                <p class="text-gray-400 mb-6">Enterprise Infrastructure Monitoring</p>
-                
-                <!-- Live Status Indicator -->
-                <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gray-800/50 text-sm mb-6">
-                    <span class="status-dot online"></span>
-                    <span>All systems operational</span>
-                    <span class="text-blue-400">• Live</span>
-                </div>
-            </div>
-            
-            <!-- Login Form -->
-            <div class="mb-8">
-                <h2 class="text-xl font-semibold mb-6 text-center">Sign in to your account</h2>
-                
-                <div class="space-y-4">
-                    <!-- Google OAuth Button -->
-                    <a href="/auth/google" class="login-btn text-white px-6 py-3 rounded-xl font-medium flex items-center justify-center gap-3 mb-4">
-                        <i class="fab fa-google text-white"></i>
-                        Continue with Google
-                    </a>
-                    
-                    <!-- Divider -->
-                    <div class="relative text-center my-6">
-                        <div class="absolute inset-0 flex items-center">
-                            <div class="w-full border-t border-gray-700"></div>
-                        </div>
-                        <div class="relative inline-flex items-center justify-center px-4">
-                            <span class="text-sm text-gray-500 bg-gray-900 px-2">or continue with</span>
-                        </div>
-                    </div>
-                    
-                    <!-- Email Field -->
-                    <div>
-                        <label class="block text-sm font-medium text-gray-300 mb-2">Email address</label>
-                        <input type="email" class="w-full px-4 py-3 rounded-xl input-field text-white focus:outline-none" placeholder="you@company.com">
-                    </div>
-                    
-                    <!-- Password Field -->
-                    <div>
-                        <div class="flex items-center justify-between mb-2">
-                            <label class="block text-sm font-medium text-gray-300">Password</label>
-                            <a href="#" class="text-sm text-blue-400 hover:text-blue-300">Forgot password?</a>
-                        </div>
-                        <input type="password" class="w-full px-4 py-3 rounded-xl input-field text-white focus:outline-none" placeholder="••••••••">
-                    </div>
-                    
-                    <!-- Remember Me -->
-                    <div class="flex items-center gap-2">
-                        <input type="checkbox" id="remember" class="rounded border-gray-600 bg-gray-800">
-                        <label for="remember" class="text-sm text-gray-300">Remember this device</label>
-                    </div>
-                    
-                    <!-- Sign In Button -->
-                    <button class="w-full py-3 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 font-semibold transition-all duration-300 hover:scale-[1.02]">
-                        Sign in with Email
-                    </button>
-                </div>
-            </div>
-            
-            <!-- Features -->
-            <div class="mb-8">
-                <h3 class="text-lg font-semibold mb-4 text-center">What you get with Dashmon</h3>
-                <div class="grid grid-cols-2 gap-3 text-sm">
-                    <div class="p-3 rounded-lg bg-gray-800/30 border border-gray-700">
-                        <i class="fas fa-bolt text-blue-400 mb-1"></i>
-                        <p class="font-medium">Real-time monitoring</p>
-                    </div>
-                    <div class="p-3 rounded-lg bg-gray-800/30 border border-gray-700">
-                        <i class="fas fa-bell text-purple-400 mb-1"></i>
-                        <p class="font-medium">Smart alerts</p>
-                    </div>
-                    <div class="p-3 rounded-lg bg-gray-800/30 border border-gray-700">
-                        <i class="fas fa-shield-alt text-green-400 mb-1"></i>
-                        <p class="font-medium">Enterprise security</p>
-                    </div>
-                    <div class="p-3 rounded-lg bg-gray-800/30 border border-gray-700">
-                        <i class="fas fa-chart-line text-yellow-400 mb-1"></i>
-                        <p class="font-medium">Advanced analytics</p>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Plans -->
-            <div class="mb-8">
-                <h3 class="text-lg font-semibold mb-4 text-center">Choose your plan</h3>
-                <div class="grid grid-cols-2 gap-4">
-                    <div class="p-4 rounded-xl bg-gradient-to-br from-gray-900 to-gray-950 border border-gray-800 text-center">
-                        <div class="text-xs text-gray-400 mb-1">FREE PLAN</div>
-                        <div class="text-xl font-bold">2-hour checks</div>
-                        <div class="text-xs text-gray-500 mt-1">10 endpoints</div>
-                    </div>
-                    <div class="p-4 rounded-xl bg-gradient-to-br from-blue-900/30 to-blue-950/30 border border-blue-800 text-center">
-                        <div class="text-xs text-blue-400 mb-1">PREMIUM</div>
-                        <div class="text-xl font-bold">15-min checks</div>
-                        <div class="text-xs text-blue-500 mt-1">100 endpoints</div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Stats -->
-            <div class="p-4 rounded-xl bg-black/20 border border-gray-800 mb-6">
-                <div class="flex items-center justify-between text-sm">
-                    <div>
-                        <div class="text-gray-400">Active users</div>
-                        <div class="text-xl font-bold">2,500+</div>
-                    </div>
-                    <div>
-                        <div class="text-gray-400">Uptime</div>
-                        <div class="text-xl font-bold text-green-400">99.9%</div>
-                    </div>
-                    <div>
-                        <div class="text-gray-400">Response time</div>
-                        <div class="text-xl font-bold">&lt;50ms</div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Bottom Links -->
-            <div class="text-center space-y-4">
-                <p class="text-sm text-gray-500">
-                    By continuing, you agree to our 
-                    <a href="#" class="text-blue-400 hover:text-blue-300">Terms</a> and 
-                    <a href="#" class="text-blue-400 hover:text-blue-300">Privacy Policy</a>
-                </p>
-                
-                <div class="pt-4 border-t border-gray-800">
-                    <a href="/" class="text-blue-400 hover:text-blue-300 inline-flex items-center gap-2">
-                        <i class="fas fa-arrow-left"></i>
-                        Back to Home
-                    </a>
-                </div>
-                
-                <div class="text-xs text-gray-600">
-                    <i class="fas fa-life-ring mr-1"></i>
-                    Need help? <a href="mailto:support@dashmon.online" class="text-blue-400">support@dashmon.online</a>
-                </div>
-            </div>
+<body class="text-white">
+  <div class="min-h-screen flex items-center justify-center px-4 py-10">
+    <div class="w-full max-w-md glass rounded-2xl p-8 shadow-2xl">
+      <div class="text-center mb-6">
+        <div class="flex items-center justify-center gap-3 mb-2">
+          <img src="icon.svg" alt="Dashmon" class="w-10 h-10">
+          <h1 class="text-2xl font-bold">Dashmon</h1>
         </div>
-    </div>
+        <p class="text-slate-300 text-sm">Monitor your internet-facing devices and get alerted when something goes down.</p>
+      </div>
 
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            // Add floating animation to cards
-            const cards = document.querySelectorAll('.bg-gray-800\\/30');
-            cards.forEach((card, index) => {
-                card.style.animationDelay = `${index * 0.1}s`;
-                card.classList.add('animate__animated', 'animate__fadeInUp');
-            });
-            
-            // Update status indicator
-            const statusDot = document.querySelector('.status-dot');
-            const statusText = document.querySelector('.inline-flex.items-center.gap-2 span:nth-child(2)');
-            
-            // Simulate status changes (for demo purposes)
-            setInterval(() => {
-                if (Math.random() > 0.95) { // 5% chance to change status
-                    if (statusDot.classList.contains('online')) {
-                        statusDot.classList.remove('online');
-                        statusDot.classList.add('offline');
-                        statusText.textContent = 'Minor issues detected';
-                        statusText.nextElementSibling.textContent = '• Investigating';
-                        statusText.nextElementSibling.classList.remove('text-blue-400');
-                        statusText.nextElementSibling.classList.add('text-yellow-400');
-                    } else {
-                        statusDot.classList.remove('offline');
-                        statusDot.classList.add('online');
-                        statusText.textContent = 'All systems operational';
-                        statusText.nextElementSibling.textContent = '• Live';
-                        statusText.nextElementSibling.classList.remove('text-yellow-400');
-                        statusText.nextElementSibling.classList.add('text-blue-400');
-                    }
-                }
-            }, 5000);
-            
-            // Add hover effect to login button
-            const loginBtn = document.querySelector('.login-btn');
-            loginBtn.addEventListener('mouseenter', () => {
-                loginBtn.style.transform = 'translateY(-2px)';
-            });
-            
-            loginBtn.addEventListener('mouseleave', () => {
-                loginBtn.style.transform = 'translateY(0)';
-            });
-            
-            // Form validation (basic)
-            const emailInput = document.querySelector('input[type="email"]');
-            const passwordInput = document.querySelector('input[type="password"]');
-            const signInBtn = document.querySelector('button.bg-gradient-to-r');
-            
-            signInBtn.addEventListener('click', () => {
-                if (!emailInput.value || !passwordInput.value) {
-                    signInBtn.textContent = 'Please fill all fields';
-                    signInBtn.classList.add('from-red-600', 'to-red-700');
-                    signInBtn.classList.remove('from-blue-600', 'to-blue-700');
-                    
-                    setTimeout(() => {
-                        signInBtn.textContent = 'Sign in with Email';
-                        signInBtn.classList.remove('from-red-600', 'to-red-700');
-                        signInBtn.classList.add('from-blue-600', 'to-blue-700');
-                    }, 2000);
-                } else {
-                    // Simulate login process
-                    signInBtn.textContent = 'Signing in...';
-                    signInBtn.disabled = true;
-                    
-                    setTimeout(() => {
-                        signInBtn.textContent = 'Sign in with Email';
-                        signInBtn.disabled = false;
-                        // In real implementation, this would submit the form
-                    }, 1500);
-                }
-            });
-        });
-    </script>
+      <!-- Google -->
+      <a href="/auth/google"
+         class="w-full flex items-center justify-center gap-3 px-4 py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 transition font-semibold">
+        <i class="fab fa-google"></i>
+        Continue with Google
+      </a>
+
+      <div class="relative my-6">
+        <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-slate-700"></div></div>
+        <div class="relative flex justify-center"><span class="bg-slate-900/60 px-3 text-xs text-slate-400 rounded-full">or</span></div>
+      </div>
+
+      <!-- Local Login -->
+      <div id="loginPanel">
+        <h2 class="text-lg font-semibold mb-4 text-center">Sign in with Email / User ID</h2>
+
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-slate-300 mb-2">Email or User ID</label>
+            <input id="localIdentifier" type="text" class="w-full px-4 py-3 rounded-xl input text-white" placeholder="you@company.com or your-id">
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-slate-300 mb-2">Password</label>
+            <input id="localPassword" type="password" class="w-full px-4 py-3 rounded-xl input text-white" placeholder="••••••••">
+          </div>
+
+          <div id="loginError" class="hidden text-sm text-red-400 text-center"></div>
+
+          <button id="localLoginBtn"
+                  class="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 transition font-semibold">
+            Sign in
+          </button>
+
+          <div class="text-center text-sm text-slate-400">
+            No account?
+            <a href="#" id="showSignup" class="text-blue-400 hover:text-blue-300">Create one</a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Signup -->
+      <div id="signupPanel" class="hidden">
+        <h2 class="text-lg font-semibold mb-4 text-center">Create an account</h2>
+
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-slate-300 mb-2">Email</label>
+            <input id="signupEmail" type="email" class="w-full px-4 py-3 rounded-xl input text-white" placeholder="you@company.com">
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-slate-300 mb-2">User ID (optional)</label>
+            <input id="signupUsername" type="text" class="w-full px-4 py-3 rounded-xl input text-white" placeholder="e.g. hossein">
+            <p class="text-xs text-slate-400 mt-1">If you set a User ID, you can log in using it instead of email.</p>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-slate-300 mb-2">Password</label>
+            <input id="signupPassword" type="password" class="w-full px-4 py-3 rounded-xl input text-white" placeholder="Min 8 characters">
+          </div>
+
+          <div id="signupError" class="hidden text-sm text-red-400 text-center"></div>
+
+          <button id="signupBtn"
+                  class="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 transition font-semibold">
+            Create account
+          </button>
+
+          <div class="text-center text-sm text-slate-400">
+            Already have an account?
+            <a href="#" id="showLogin" class="text-blue-400 hover:text-blue-300">Sign in</a>
+          </div>
+        </div>
+      </div>
+
+      <p class="mt-6 text-center text-xs text-slate-500">
+        By signing in you agree to basic monitoring terms. Google login is still supported.
+      </p>
+    </div>
+  </div>
+
+<script>
+(function(){
+  const $ = (id) => document.getElementById(id);
+  const show = (el) => el && el.classList.remove('hidden');
+  const hide = (el) => el && el.classList.add('hidden');
+  const setText = (el, t) => { if (el) el.textContent = t; };
+
+  function setBusy(btn, busy){
+    if (!btn) return;
+    btn.disabled = busy;
+    btn.style.opacity = busy ? '0.7' : '1';
+    btn.style.cursor = busy ? 'not-allowed' : 'pointer';
+  }
+
+  async function postJSON(url, body){
+    const res = await fetch(url, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {})
+    });
+    const data = await res.json().catch(()=> ({}));
+    if (!res.ok) throw new Error(data.error || ('Request failed (' + res.status + ')'));
+    return data;
+  }
+
+  const loginPanel = $('loginPanel');
+  const signupPanel = $('signupPanel');
+
+  $('showSignup')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    hide(loginPanel); show(signupPanel);
+    hide($('loginError')); hide($('signupError'));
+  });
+
+  $('showLogin')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    show(loginPanel); hide(signupPanel);
+    hide($('loginError')); hide($('signupError'));
+  });
+
+  $('localLoginBtn')?.addEventListener('click', async (e) => {
+    e.preventDefault();
+    hide($('loginError'));
+    const btn = $('localLoginBtn');
+    setBusy(btn, true);
+    try{
+      const identifier = String($('localIdentifier')?.value || '').trim();
+      const password = String($('localPassword')?.value || '');
+      await postJSON('/auth/local/login', { identifier, password });
+      window.location.href = '/app/';
+    }catch(err){
+      setText($('loginError'), err.message || String(err));
+      show($('loginError'));
+    }finally{
+      setBusy(btn, false);
+    }
+  });
+
+  $('signupBtn')?.addEventListener('click', async (e) => {
+    e.preventDefault();
+    hide($('signupError'));
+    const btn = $('signupBtn');
+    setBusy(btn, true);
+    try{
+      const email = String($('signupEmail')?.value || '').trim();
+      const username = String($('signupUsername')?.value || '').trim();
+      const password = String($('signupPassword')?.value || '');
+      await postJSON('/auth/local/signup', { email, username, password });
+      window.location.href = '/app/';
+    }catch(err){
+      setText($('signupError'), err.message || String(err));
+      show($('signupError'));
+    }finally{
+      setBusy(btn, false);
+    }
+  });
+})();
+</script>
 </body>
 </html>

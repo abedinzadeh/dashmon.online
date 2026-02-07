@@ -12,57 +12,9 @@
     expanded: new Set(),
     tvMode: false,
     soundOn: (localStorage.getItem('downAlertSound') || 'on') === 'on',
-    // null means "not initialized yet". Important: 0 is a valid value.
-    lastDownCount: null,
-    // Audio is often blocked until a user gesture happens.
-    audioCtx: null,
-    audioUnlocked: false,
-    // Siren MP3 (preloaded)
-    sirenAudio: null,
-    lastSirenAt: 0,
+    lastDownCount: 0,
     emailAlert: { enabled: false, cooldownMinutes: 30, to: [] }
   };
-
-  // Browser autoplay policy: unlock audio on first user gesture.
-  function unlockAudioOnce() {
-    if (state.audioUnlocked) return;
-    try {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (!AudioCtx) return;
-      state.audioCtx = state.audioCtx || new AudioCtx();
-      // Some browsers require resume() on a gesture.
-      if (state.audioCtx.state === 'suspended') state.audioCtx.resume().catch(() => {});
-
-      // Play an inaudible blip to fully unlock.
-      const o = state.audioCtx.createOscillator();
-      const g = state.audioCtx.createGain();
-      g.gain.value = 0.00001;
-      o.connect(g);
-      g.connect(state.audioCtx.destination);
-      o.start();
-      o.stop(state.audioCtx.currentTime + 0.02);
-      state.audioUnlocked = true;
-    } catch (_) {
-      // ignore
-    }
-  }
-
-  // Attach unlock handler early.
-  window.addEventListener('pointerdown', unlockAudioOnce, { once: true, passive: true });
-  window.addEventListener('keydown', unlockAudioOnce, { once: true });
-
-  // Preload siren.mp3 early (playback still requires a user gesture in most browsers).
-  try {
-    if (!state.sirenAudio) {
-      const a = new Audio('/siren.mp3');
-      a.preload = 'auto';
-      a.loop = false;
-      a.volume = 1.0;
-      a.load();
-      state.sirenAudio = a;
-    }
-  } catch (_) {}
-
 
 
   // Chart instances
@@ -349,24 +301,6 @@ function ensureLineChart(canvasId, label, points, existing) {
     alert('Email alert settings saved.');
   }
 
-  async function sendTestEmail() {
-    const btn = $('testEmailAlerts');
-    if (btn) btn.disabled = true;
-    try {
-      const res = await apiFetch('/api/alerts/email/test', {
-        method: 'POST',
-        body: { to: String($('emailAlertsTo')?.value || '').trim() }
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-      alert(data.message || 'Test email request sent.');
-    } catch (e) {
-      alert('Test email failed: ' + (e?.message || e));
-    } finally {
-      if (btn) btn.disabled = false;
-    }
-  }
-
   const scrollLock = typeof createScrollLock === 'function' ? createScrollLock(window, document) : null;
 
   function openModal(id) {
@@ -409,31 +343,34 @@ function statusClass(status) {
     }
     return { totalStores, totalDevices, up, down, warning, maintenance };
   }
+
   function playDownIncreaseAlert() {
-    // Play /siren.mp3 when DOWN count increases.
     if (!state.soundOn) return;
-
-    const now = Date.now();
-    if (now - (state.lastSirenAt || 0) < 4000) return; // cooldown
-    state.lastSirenAt = now;
-
     try {
-      if (!state.sirenAudio) {
-        const a = new Audio('/siren.mp3');
-        a.preload = 'auto';
-        a.loop = false;
-        a.volume = 1.0;
-        try { a.load(); } catch (_) {}
-        state.sirenAudio = a;
-      }
-      const a = state.sirenAudio;
-      a.pause();
-      a.currentTime = 0;
-      const p = a.play();
-      // ignore async errors (often autoplay blocked until first click)
-      if (p && typeof p.catch === 'function') p.catch(() => {});
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      const ctx = new AudioCtx();
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = 880;
+      g.gain.value = 0.0001;
+      o.connect(g);
+      g.connect(ctx.destination);
+      const t0 = ctx.currentTime;
+      // quick triple beep
+      const beep = (t) => {
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.2, t + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+      };
+      beep(t0);
+      beep(t0 + 0.25);
+      beep(t0 + 0.5);
+      o.start(t0);
+      o.stop(t0 + 0.8);
+      setTimeout(() => ctx.close().catch(() => {}), 1200);
     } catch (e) {
-      console.warn('Siren playback failed:', e);
+      console.warn('Sound alert failed:', e);
     }
   }
 
@@ -453,8 +390,7 @@ function statusClass(status) {
     updateMainGraphs().catch(()=>{});
 
     const sum = computeSummary(state.projects);
-    // Trigger when DOWN count increases, including 0 -> 1.
-    if (state.lastDownCount !== null && sum.down > state.lastDownCount) {
+    if (state.lastDownCount && sum.down > state.lastDownCount) {
       playDownIncreaseAlert();
     }
     state.lastDownCount = sum.down;
@@ -908,7 +844,6 @@ function bindTvSummaryCards() {
     $('emailAlertsBtn')?.addEventListener('click', openEmailAlertsModal);
     $('closeEmailAlertsModal')?.addEventListener('click', () => closeModal('emailAlertsModal'));
     $('cancelEmailAlerts')?.addEventListener('click', () => closeModal('emailAlertsModal'));
-    $('testEmailAlerts')?.addEventListener('click', sendTestEmail);
     $('emailAlertsForm')?.addEventListener('submit', saveEmailAlerts);
 
     $('totalDevicesCard')?.addEventListener('click', () => openSummaryDevicesModal('all'));

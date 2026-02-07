@@ -4,12 +4,16 @@ const { createClient } = require('redis');
 const RedisStore = require('connect-redis').default;
 
 const { passport } = require('./auth');
+const { ensureLocalAuthSchema } = require('./migrations');
 const { router } = require('./routes');
 const { createMemoryRateLimiter } = require('./rate-limit');
 const { createSessionMiddleware } = require('./session-config');
 
 function createApp() {
   const app = express();
+
+  // Ensure DB schema supports local accounts
+  ensureLocalAuthSchema().catch((e) => console.error('Schema ensure failed:', e));
 
   // Redis session store
   const redisClient = createClient({ url: process.env.REDIS_URL });

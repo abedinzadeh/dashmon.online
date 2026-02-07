@@ -1,6 +1,7 @@
 const express = require('express');
 const { pool } = require('./db');
-const { requireAuth } = require('./auth');
+const { requireAuth, passport } = require('./auth');
+const bcrypt = require('bcryptjs');
 const {
   getPlanLimits: resolvePlanLimits,
   enforceProjectLimitForUser,
@@ -10,6 +11,60 @@ const { createMemoryRateLimiter } = require('./rate-limit');
 
 const router = express.Router();
 router.use(express.json());
+
+// --- Local auth (Email/UserID + Password) ---
+router.post('/auth/local/signup', async (req, res) => {
+  try {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const usernameRaw = String(req.body?.username || '').trim();
+    const username = usernameRaw ? usernameRaw : null;
+    const password = String(req.body?.password || '');
+
+    if (!email || !email.includes('@')) return res.status(400).json({ error: 'Valid email is required' });
+    if (username && username.length < 3) return res.status(400).json({ error: 'User ID must be at least 3 characters' });
+    if (!password || password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+
+    const existingEmail = await pool.query('SELECT * FROM users WHERE email=$1', [email]);
+    if (existingEmail.rows[0]) {
+      if (!existingEmail.rows[0].password_hash) {
+        return res.status(409).json({ error: 'This email is already registered via Google. Please continue with Google.' });
+      }
+      return res.status(409).json({ error: 'Email already registered. Please sign in.' });
+    }
+
+    if (username) {
+      const existingUsername = await pool.query('SELECT 1 FROM users WHERE username=$1', [username]);
+      if (existingUsername.rows[0]) return res.status(409).json({ error: 'User ID already taken' });
+    }
+
+    const hash = await bcrypt.hash(password, 12);
+    const created = await pool.query(
+      'INSERT INTO users(email, username, password_hash, provider, plan) VALUES($1,$2,$3,$4,$5) RETURNING *',
+      [email, username, hash, 'local', 'free']
+    );
+
+    const user = created.rows[0];
+    req.login(user, (err) => {
+      if (err) return res.status(500).json({ error: 'Failed to create session' });
+      return res.json({ ok: true });
+    });
+  } catch (e) {
+    console.error('signup error', e);
+    res.status(500).json({ error: 'Signup failed' });
+  }
+});
+
+router.post('/auth/local/login', (req, res, next) => {
+  passport.authenticate('local', (err, user, info) => {
+    if (err) return res.status(500).json({ error: 'Login failed' });
+    if (!user) return res.status(401).json({ error: info?.message || 'Invalid credentials' });
+    req.login(user, (e) => {
+      if (e) return res.status(500).json({ error: 'Failed to create session' });
+      return res.json({ ok: true });
+    });
+  })(req, res, next);
+});
+
 
 // --- Write rate limiting (POST/PUT/DELETE) ---
 const writeRateLimiter = createMemoryRateLimiter({
@@ -654,56 +709,6 @@ router.put('/api/alerts/email', requireAuth, async (req, res) => {
   } catch (e) {
     console.error('Error updating email alert config:', e);
     res.status(500).json({ error: 'Failed to update email alert config' });
-  }
-});
-
-// Send a test email to verify SMTP settings without waiting for a real alert.
-router.post('/api/alerts/email/test', requireAuth, async (req, res) => {
-  try {
-    const host = process.env.SMTP_HOST;
-    const port = process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : 587;
-    const user = process.env.SMTP_USER;
-    const pass = process.env.SMTP_PASS;
-    const from = process.env.SMTP_FROM || user;
-    const secure = String(process.env.SMTP_SECURE || '').toLowerCase() === 'true' || port === 465;
-
-    if (!host || !user || !pass || !from) {
-      return res.status(400).json({
-        error: 'SMTP is not configured. Please set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and SMTP_FROM in .env'
-      });
-    }
-
-    // Optional: allow overriding recipients from the modal textbox.
-    const rawTo = typeof req.body?.to === 'string' ? req.body.to : '';
-    const parsed = rawTo
-      .split(',')
-      .map((x) => x.trim())
-      .filter(Boolean);
-
-    const to = parsed.length ? parsed : [req.user.email].filter(Boolean);
-    if (!to.length) {
-      return res.status(400).json({ error: 'No recipient address available.' });
-    }
-
-    const nodemailer = require('nodemailer');
-    const transporter = nodemailer.createTransport({
-      host,
-      port,
-      secure,
-      auth: { user, pass }
-    });
-
-    await transporter.sendMail({
-      from,
-      to: to.join(','),
-      subject: 'Dashmon SMTP test',
-      text: `This is a Dashmon SMTP test email.\n\nTime: ${new Date().toISOString()}\nUser: ${req.user.email}`
-    });
-
-    res.json({ message: `Test email sent to ${to.join(', ')}` });
-  } catch (e) {
-    console.error('Test email failed:', e);
-    res.status(500).json({ error: e?.message || 'Failed to send test email' });
   }
 });
 
