@@ -24,6 +24,9 @@ async function ensureLocalAuthSchema() {
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS demo_used_at TIMESTAMPTZ');
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS demo_expires_at TIMESTAMPTZ');
 
+  // Premium-only: manual refresh (cooldown enforced server-side)
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS manual_refresh_last_at TIMESTAMPTZ');
+
   // Bank transfer requests
   await pool.query(`
     CREATE TABLE IF NOT EXISTS bank_transfer_requests (

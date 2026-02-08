@@ -146,6 +146,52 @@
 <script>
 (function(){
   const $ = (id)=>document.getElementById(id);
+
+  // --- Timezone-aware formatting (per-user) ---
+  function getUserTz(){
+    const u = window.__me || null;
+    const tz = (u && u.plan === 'premium' && u.timezone) ? String(u.timezone) : '';
+    if (!tz) return 'UTC';
+    try {
+      if (typeof isValidIanaTimeZone === 'function' && !isValidIanaTimeZone(tz)) return 'UTC';
+      new Intl.DateTimeFormat('en-US', { timeZone: tz }).format(new Date());
+      return tz;
+    } catch (_) { return 'UTC'; }
+  }
+  function fmtDT(v){
+    if(!v) return '';
+    try {
+      if (typeof formatDateTime === 'function') return formatDateTime(v, { timeZone: getUserTz() });
+    } catch (_) {}
+    const d = (v instanceof Date) ? v : new Date(v);
+    if (Number.isNaN(d.getTime())) return '';
+    try {
+      return new Intl.DateTimeFormat('en-AU', {
+        timeZone: getUserTz(),
+        year:'numeric', month:'2-digit', day:'2-digit',
+        hour:'2-digit', minute:'2-digit', second:'2-digit',
+        hour12:false
+      }).format(d);
+    } catch(_) {
+      return new Intl.DateTimeFormat('en-AU', {
+        timeZone: 'UTC',
+        year:'numeric', month:'2-digit', day:'2-digit',
+        hour:'2-digit', minute:'2-digit', second:'2-digit',
+        hour12:false
+      }).format(d);
+    }
+  }
+  function fmtHM(v){
+    if(!v) return '';
+    const d = (v instanceof Date) ? v : new Date(v);
+    if (Number.isNaN(d.getTime())) return '';
+    try {
+      return new Intl.DateTimeFormat('en-AU', { timeZone: getUserTz(), hour:'2-digit', minute:'2-digit', hour12:false }).format(d);
+    } catch(_) {
+      return new Intl.DateTimeFormat('en-AU', { timeZone: 'UTC', hour:'2-digit', minute:'2-digit', hour12:false }).format(d);
+    }
+  }
+
   const qs = new URLSearchParams(location.search);
   const projectId = qs.get('projectId');
   let devicesCache = [];
@@ -329,7 +375,7 @@ function bindProjectMaintenanceUI(){
     document.getElementById('pdSub').textContent = `${device.type||'other'} • ${device.ip||''}`;
     document.getElementById('pdStatus').textContent = (device.status||'unknown').toUpperCase();
     document.getElementById('pdStatusDot').className = `inline-block w-3 h-3 rounded-full ${statusDotColor(device.status)}`;
-    document.getElementById('pdLast').textContent = device.last_check ? new Date(device.last_check).toLocaleString() : 'Never';
+    document.getElementById('pdLast').textContent = device.last_check ? fmtDT(device.last_check) : 'Never';
 
     // store context
     document.getElementById('pdTestNow').dataset.deviceId = device.id;
@@ -340,7 +386,7 @@ function bindProjectMaintenanceUI(){
     const hr = await apiFetch(`/api/devices/${encodeURIComponent(device.id)}/history?limit=60`);
     if(hr.ok && typeof Chart!=='undefined'){
       const hist = (await hr.json()).history || [];
-      const labels = hist.map(h => new Date(h.ts).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}));
+      const labels = hist.map(h => fmtHM(h.ts));
       const values = hist.map(h => (h.latency_ms==null ? null : Number(h.latency_ms)));
       if(deviceChart){
         deviceChart.data.labels = labels;
@@ -356,7 +402,7 @@ function bindProjectMaintenanceUI(){
 
       const list = document.getElementById('pdHistory');
       list.innerHTML = hist.slice(-30).reverse().map(h=>{
-        const t = new Date(h.ts).toLocaleString();
+        const t = fmtDT(h.ts);
         const s = (h.status||'').toUpperCase();
         const l = h.latency_ms==null ? '-' : `${h.latency_ms}ms`;
         return `<div class="flex justify-between gap-3 py-1 border-b border-white/5"><span>${t}</span><span>${s}</span><span>${l}</span></div>`;

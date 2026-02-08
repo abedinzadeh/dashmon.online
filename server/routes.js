@@ -242,7 +242,8 @@ router.get('/api/me', requireAuth, async (req, res) => {
     demo_used_at: req.user.demo_used_at || null,
     demo_expires_at: req.user.demo_expires_at || null,
     bank_transfer_reference: req.user.bank_transfer_reference || null,
-    timezone: req.user.timezone || null
+    timezone: req.user.timezone || null,
+    manual_refresh_last_at: req.user.manual_refresh_last_at || null
   });
 });
 
@@ -1186,6 +1187,43 @@ router.post('/api/devices/:deviceId/test-now', requireAuth, requirePremium, asyn
   } catch (e) {
     console.error('Error test-now:', e);
     res.status(500).json({ error: 'Failed to queue test' });
+  }
+});
+
+// Premium-only: refresh ALL devices immediately (1 request per minute)
+router.post('/api/devices/refresh-all', requireAuth, requirePremium, async (req, res) => {
+  try {
+    // Enforce a 60s cooldown per user
+    const { rows: urows } = await pool.query(
+      'SELECT manual_refresh_last_at FROM users WHERE id=$1',
+      [req.user.id]
+    );
+    const last = urows[0]?.manual_refresh_last_at ? new Date(urows[0].manual_refresh_last_at) : null;
+    const now = new Date();
+    const cooldownMs = 60 * 1000;
+    if (last && !Number.isNaN(last.getTime())) {
+      const elapsed = now.getTime() - last.getTime();
+      if (elapsed < cooldownMs) {
+        const retryAfterSeconds = Math.max(1, Math.ceil((cooldownMs - elapsed) / 1000));
+        res.set('Retry-After', String(retryAfterSeconds));
+        return res.status(429).json({
+          error: 'Refresh is limited to once per minute for Premium users.',
+          retryAfterSeconds
+        });
+      }
+    }
+
+    // Mark refresh time + make all devices immediately due for the worker
+    await pool.query('UPDATE users SET manual_refresh_last_at = now() WHERE id=$1', [req.user.id]);
+    const { rowCount } = await pool.query(
+      "UPDATE devices SET last_check = now() - interval '365 days' WHERE user_id=$1",
+      [req.user.id]
+    );
+
+    res.json({ ok: true, queued_devices: rowCount || 0, cooldownSeconds: 60 });
+  } catch (e) {
+    console.error('Error refresh-all:', e);
+    res.status(500).json({ error: 'Failed to refresh devices' });
   }
 });
 

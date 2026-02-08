@@ -15,7 +15,10 @@
     soundOn: (localStorage.getItem('downAlertSound') || 'on') === 'on',
     lastDownCount: 0,
     emailAlert: { enabled: false, cooldownMinutes: 30, to: [] },
-    smsAlert: { enabled: false, cooldownMinutes: 30, to: '', storeOverrides: {} }
+    smsAlert: { enabled: false, cooldownMinutes: 30, to: '', storeOverrides: {} },
+
+    // Premium-only: manual refresh cooldown (ms since epoch)
+    refreshCooldownUntil: 0,
   };
 
 
@@ -30,6 +33,7 @@
   const chartLifecycle = typeof createChartLifecycle === 'function' ? createChartLifecycle() : null;
   const sparkRenderGuard = chartLifecycle?.createRenderGuard ? chartLifecycle.createRenderGuard() : null;
   let refreshTimer = null;
+  let cooldownUiTimer = null;
   let pendingSparkTimeouts = [];
 
   
@@ -240,7 +244,102 @@ function ensureLineChart(canvasId, label, points, existing) {
     }
     state.user = await res.json();
     updateUserInfo();
+    // Initialize refresh cooldown from server state (if present)
+    if (state.user?.manual_refresh_last_at) {
+      const last = new Date(state.user.manual_refresh_last_at);
+      if (!Number.isNaN(last.getTime())) {
+        state.refreshCooldownUntil = last.getTime() + 60 * 1000;
+      }
+    }
     return true;
+  }
+
+  function isPremiumUser() {
+    return String(state.user?.plan || 'free').toLowerCase() === 'premium';
+  }
+  function getEffectiveTimeZoneForDisplay() {
+    try {
+      if (isPremiumUser() && state.user?.timezone) return String(state.user.timezone);
+      return 'UTC';
+    } catch (e) {
+      return 'UTC';
+    }
+  }
+
+  function formatTimeOnlyForDisplay(dateObj) {
+    const d = dateObj instanceof Date ? dateObj : new Date(dateObj);
+    const tz = getEffectiveTimeZoneForDisplay();
+    try {
+      return new Intl.DateTimeFormat(undefined, {
+        timeZone: tz,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      }).format(d);
+    } catch (e) {
+      return d.toLocaleTimeString();
+    }
+  }
+
+
+  function formatTs(ts) {
+    if (!ts) return '';
+    try {
+      const tz = isPremiumUser() && state.user?.timezone ? String(state.user.timezone) : null;
+      if (typeof window.formatDateTime === 'function') {
+        return window.formatDateTime(ts, tz ? { timeZone: tz } : {});
+      }
+      // Fallback
+      return new Date(ts).toLocaleString();
+    } catch (_) {
+      return new Date(ts).toLocaleString();
+    }
+  }
+
+  function setRefreshCooldown(seconds) {
+    const ms = Math.max(0, Number(seconds || 0)) * 1000;
+    state.refreshCooldownUntil = Date.now() + ms;
+    updateRefreshBtnState();
+  }
+
+  function updateRefreshBtnState() {
+    const btn = $('refreshBtn');
+    if (!btn) return;
+
+    // Free users can't use manual refresh
+    if (!isPremiumUser()) {
+      btn.disabled = true;
+      btn.classList.add('opacity-50', 'cursor-not-allowed');
+      btn.title = 'Premium feature: refresh all devices now';
+      return;
+    }
+
+    const remainingMs = state.refreshCooldownUntil - Date.now();
+    if (remainingMs > 0) {
+      const s = Math.ceil(remainingMs / 1000);
+      btn.disabled = true;
+      btn.classList.add('opacity-50', 'cursor-not-allowed');
+      btn.title = `Available in ${s}s`;
+    } else {
+      btn.disabled = false;
+      btn.classList.remove('opacity-50', 'cursor-not-allowed');
+      btn.title = 'Refresh all devices now (Premium)';
+    }
+  }
+
+  function updateTimezoneBtnState() {
+    const btn = $('timezoneBtn');
+    if (!btn) return;
+
+    if (!isPremiumUser()) {
+      btn.disabled = true;
+      btn.classList.add('opacity-50', 'cursor-not-allowed');
+      btn.title = 'Premium feature: set display timezone';
+      return;
+    }
+    btn.disabled = false;
+    btn.classList.remove('opacity-50', 'cursor-not-allowed');
+    btn.title = 'Set display timezone (Premium)';
   }
   function updateUserInfo() {
     const el = $('userInfo');
@@ -291,6 +390,10 @@ function ensureLineChart(canvasId, label, points, existing) {
         ? '<i class="fas fa-volume-up mr-2"></i>Sound: ON'
         : '<i class="fas fa-volume-mute mr-2"></i>Sound: OFF';
     }
+
+    // Premium-gated buttons
+    updateRefreshBtnState();
+    updateTimezoneBtnState();
   }
 
   async function loadEmailAlertConfig() {
@@ -608,7 +711,7 @@ function statusClass(status) {
     }
     state.lastDownCount = sum.down;
 
-    const now = new Date().toLocaleTimeString();
+    const now = formatTimeOnlyForDisplay(new Date());
     const tvLastUpdated = $('tvLastUpdated');
     if (tvLastUpdated) tvLastUpdated.textContent = now;
     const dashboardLastUpdated = $('lastUpdated');
@@ -1070,7 +1173,7 @@ function renderProjects() {
     $('deviceDetailsIp').textContent = d.ip || '';
     $('deviceDetailsStatus').textContent = (d.status || 'unknown').toUpperCase();
     $('deviceDetailsStatusDot').className = 'status-dot ' + statusClass(d.status || 'unknown');
-    $('deviceDetailsLastCheck').textContent = d.last_check ? new Date(d.last_check).toLocaleString() : 'Never';
+    $('deviceDetailsLastCheck').textContent = d.last_check ? formatTs(d.last_check) : 'Never';
     $('deviceDetailsLoss').textContent = (d.packet_loss ?? '-') + '';
     $('deviceDetailsUrl').textContent = d.url || '-';
 
@@ -1096,7 +1199,7 @@ function renderProjects() {
         const listEl = $('deviceDetailsHistory');
         if (listEl) {
           listEl.innerHTML = hist.slice(-30).reverse().map(x => {
-            const t = new Date(x.ts).toLocaleString();
+            const t = formatTs(x.ts);
             const s = String(x.status || '').toUpperCase();
             const stLower = String(x.status || '').toLowerCase();
             let l;
@@ -1196,7 +1299,85 @@ function toggleDownAlertSound() {
   }
 
   async function refreshAll() {
-    await loadProjects();
+    // Premium-only: trigger immediate checks for all user's devices.
+    if (!isPremiumUser()) {
+      window.location.href = '/app/pricing.html';
+      return;
+    }
+
+    updateRefreshBtnState();
+
+    const btn = $('refreshBtn');
+    if (btn) btn.disabled = true;
+
+    try {
+      const res = await apiFetch('/api/devices/refresh-all', { method: 'POST' });
+      if (res.status === 429) {
+        const payload = await res.json().catch(() => ({}));
+        const retryAfter = Number(payload.retryAfterSeconds || res.headers.get('Retry-After') || 60);
+        setRefreshCooldown(retryAfter);
+        return;
+      }
+      if (!res.ok) throw new Error('Failed to refresh');
+
+      const payload = await res.json().catch(() => ({}));
+      setRefreshCooldown(Number(payload.cooldownSeconds || 60));
+
+      // Load immediately, then again shortly (worker checks every ~20s)
+      await loadProjects();
+      setTimeout(() => loadProjects().catch(() => {}), 25 * 1000);
+    } catch (e) {
+      alert(e?.message || 'Refresh failed');
+      updateRefreshBtnState();
+    }
+  }
+
+  function openTimezoneModal() {
+    if (!isPremiumUser()) {
+      window.location.href = '/app/pricing.html';
+      return;
+    }
+    const m = $('timezoneModal');
+    if (!m) return;
+    m.classList.remove('hidden');
+    m.classList.add('flex');
+    scrollLock?.lock();
+    const input = $('timezoneInput');
+    if (input) input.value = state.user?.timezone || '';
+  }
+
+  function closeTimezoneModal() {
+    const m = $('timezoneModal');
+    if (!m) return;
+    m.classList.add('hidden');
+    m.classList.remove('flex');
+    scrollLock?.unlock();
+  }
+
+  async function saveTimezonePreference(e) {
+    e?.preventDefault?.();
+    const input = $('timezoneInput');
+    const tz = String(input?.value || '').trim();
+    if (tz && typeof window.isValidIanaTimeZone === 'function' && !window.isValidIanaTimeZone(tz)) {
+      alert('Invalid timezone. Example: Australia/Adelaide');
+      return;
+    }
+
+    try {
+      const res = await apiFetch('/api/user/preferences/timezone', {
+        method: 'PUT',
+        body: { timezone: tz || null }
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        throw new Error(payload.error || 'Failed to save timezone');
+      }
+      state.user.timezone = (tz || null);
+      closeTimezoneModal();
+      await loadProjects();
+    } catch (err) {
+      alert(err?.message || 'Failed to save timezone');
+    }
   }
 
   async function init() {
@@ -1209,6 +1390,12 @@ function toggleDownAlertSound() {
     $('themeToggle')?.addEventListener('click', toggleTheme);
     $('tvModeToggle')?.addEventListener('click', toggleTvMode);
     $('refreshBtn')?.addEventListener('click', refreshAll);
+    $('timezoneBtn')?.addEventListener('click', openTimezoneModal);
+    $('cancelTimezone')?.addEventListener('click', closeTimezoneModal);
+    $('saveTimezone')?.addEventListener('click', saveTimezonePreference);
+    $('timezoneModal')?.addEventListener('click', (e) => {
+      if (e.target && e.target.id === 'timezoneModal') closeTimezoneModal();
+    });
     $('logoutBtn')?.addEventListener('click', logout);
 
     // Main view toggle (Projects / Devices)
@@ -1280,13 +1467,24 @@ function toggleDownAlertSound() {
     // Initial load
     await loadProjects();
 
+    // Update premium-gated button states (cooldown countdown)
+    updateRefreshBtnState();
+    updateTimezoneBtnState();
+    cooldownUiTimer = setInterval(() => {
+      updateRefreshBtnState();
+    }, 1000);
+
     // Auto refresh (60s)
     refreshTimer = setInterval(() => loadProjects().catch(() => {}), 60 * 1000);
+
+    // Cooldown UI tick for Premium refresh button
+    cooldownUiTimer = setInterval(() => updateRefreshBtnState(), 1000);
   }
 
   document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('beforeunload', () => {
       if (refreshTimer) clearInterval(refreshTimer);
+      if (cooldownUiTimer) clearInterval(cooldownUiTimer);
       pendingSparkTimeouts.forEach((id) => clearTimeout(id));
       pendingSparkTimeouts = [];
       if (chartLifecycle) chartLifecycle.resetChartMap(state.charts.sparks);
