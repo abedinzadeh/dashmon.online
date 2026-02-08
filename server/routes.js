@@ -5,16 +5,11 @@ const { requirePremium } = require('./require-premium');
 const bcrypt = require('bcryptjs');
 const {
   getPlanLimits: resolvePlanLimits,
-  getEffectivePlanFromUserRow,
-  isPremiumActiveFromUserRow,
   enforceProjectLimitForUser,
   getUserPlanFromDb
 } = require('./plan-limits');
 const { createMemoryRateLimiter } = require('./rate-limit');
 const { sendSms } = require('./sms');
-const paypal = require('./paypal');
-
-const crypto = require('node:crypto');
 
 // Maintenance window helpers
 function parseMaybeTime(v) {
@@ -87,12 +82,7 @@ function computeAnalyticsFromHistory(historyAsc) {
 }
 
 const router = express.Router();
-// PayPal webhook signature verification requires the raw JSON body.
-// For all other routes we can safely use JSON parsing.
-router.use((req, res, next) => {
-  if (req.path === '/api/billing/paypal/webhook') return next();
-  return express.json()(req, res, next);
-});
+router.use(express.json());
 
 // --- UTC normalization ---
 // Server returns ISO 8601 UTC strings for any Date objects in JSON responses.
@@ -191,7 +181,7 @@ router.post('/auth/local/login', (req, res, next) => {
 // --- Write rate limiting (POST/PUT/DELETE) ---
 const writeRateLimiter = createMemoryRateLimiter({
   windowMs: 60 * 1000,
-  maxRequests: (req) => (isPremiumActiveFromUserRow(req.user) ? 120 : 60),
+  maxRequests: (req) => (req.user?.plan === 'premium' ? 120 : 60),
   keyFn: (req) => `${req.user?.id || req.ip || 'anon'}:${req.path}`,
   message: 'Too many write requests. Please slow down.'
 });
@@ -201,73 +191,19 @@ router.use((req, res, next) => {
   return writeRateLimiter(req, res, next);
 });
 
-async function downgradeExpiredDemoIfNeeded(user) {
-  if (!user) return;
-  const now = new Date();
-  const src = String(user.plan_source || '').trim().toLowerCase();
-  const expiresAt = user.demo_expires_at || user.premium_until;
-  const exp = expiresAt ? new Date(expiresAt) : null;
-  const expired = exp && !Number.isNaN(exp.getTime()) && now >= exp;
-
-  // Only auto-downgrade demo trials. Paid plans should be handled via PayPal webhooks or admin.
-  if (src === 'demo' && expired) {
-    try {
-      await pool.query(
-        "UPDATE users SET plan='free', plan_status='active', plan_source=NULL, premium_until=NULL, paypal_subscription_id=NULL, bank_transfer_reference=NULL, pending_since=NULL WHERE id=$1",
-        [user.id]
-      );
-      user.plan = 'free';
-      user.plan_status = 'active';
-      user.plan_source = null;
-      user.premium_until = null;
-      user.demo_expires_at = null;
-    } catch (e) {
-      console.error('Failed to auto-downgrade expired demo:', e);
-    }
-  }
-}
-
 // --- Auth / session helpers ---
-router.get('/api/me', requireAuth, async (req, res) => {
-  await downgradeExpiredDemoIfNeeded(req.user);
-  const effectivePlan = getEffectivePlanFromUserRow(req.user);
+router.get('/api/me', requireAuth, (req, res) => {
   res.json({
     id: req.user.id,
     email: req.user.email,
     name: req.user.name,
-    plan: effectivePlan,
-    plan_status: req.user.plan_status || 'active',
-    plan_source: req.user.plan_source || null,
-    premium_until: req.user.premium_until || null,
-    demo_used_at: req.user.demo_used_at || null,
-    demo_expires_at: req.user.demo_expires_at || null,
-    bank_transfer_reference: req.user.bank_transfer_reference || null,
-    timezone: req.user.timezone || null,
-    manual_refresh_last_at: req.user.manual_refresh_last_at || null
+    plan: req.user.plan,
+    timezone: req.user.timezone || null
   });
 });
 
-// --- Billing / subscription ---
-const BILLING_CURRENCY = String(process.env.BILLING_CURRENCY || 'USD').trim().toUpperCase();
-const BILLING_PREMIUM_PRICE_CENTS = Math.max(
-  0,
-  Math.round(Number(process.env.BILLING_PREMIUM_PRICE || 19) * 100)
-);
-
-function isDemoPromoEnabledNow() {
-  if (String(process.env.BILLING_DEMO_ENABLED || '').trim().toLowerCase() !== 'true') return false;
-  const endsAt = String(process.env.BILLING_DEMO_PROMO_END_AT || '').trim();
-  if (!endsAt) return true;
-  const d = new Date(endsAt);
-  if (Number.isNaN(d.getTime())) return true;
-  return new Date() < d;
-}
-
-function demoDurationMs() {
-  const hours = Number(process.env.BILLING_DEMO_DURATION_HOURS || 24);
-  return Math.max(1, hours) * 60 * 60 * 1000;
-}
-
+// --- Billing / subscription (placeholder) ---
+// This is intentionally a basic stub. Wire this up to Stripe/Chargebee later.
 router.get('/api/billing/plans', (_req, res) => {
   res.json({
     plans: [
@@ -275,15 +211,15 @@ router.get('/api/billing/plans', (_req, res) => {
         id: 'free',
         name: 'Free',
         price: 0,
-        currency: BILLING_CURRENCY,
+        currency: 'USD',
         interval: 'month',
         features: ['Up to 3 projects', 'Up to 15 devices per project', 'Checks every 2 hours']
       },
       {
         id: 'premium',
         name: 'Premium',
-        price: Number((BILLING_PREMIUM_PRICE_CENTS / 100).toFixed(2)),
-        currency: BILLING_CURRENCY,
+        price: 19,
+        currency: 'USD',
         interval: 'month',
         features: ['Up to 10 projects', 'Up to 15 devices per project', 'Checks every 15 minutes', 'Manual test-now', 'Timezone preference']
       }
@@ -291,355 +227,15 @@ router.get('/api/billing/plans', (_req, res) => {
   });
 });
 
-router.get('/api/billing/config', requireAuth, async (req, res) => {
-  await downgradeExpiredDemoIfNeeded(req.user);
-  const demoEnabled = isDemoPromoEnabledNow();
-  const effectivePlan = getEffectivePlanFromUserRow(req.user);
+router.post('/api/billing/checkout', requireAuth, async (req, res) => {
+  // Placeholder: return a "checkout session" object for the UI.
+  // In a real implementation, create a Stripe checkout session and return its URL.
   res.json({
-    currency: BILLING_CURRENCY,
-    premiumPrice: Number((BILLING_PREMIUM_PRICE_CENTS / 100).toFixed(2)),
-    paypal: {
-      enabled: paypal.isPayPalConfigured(),
-      env: paypal.getPayPalEnv(),
-      clientId: paypal.getClientId() || null
-    },
-    bankTransfer: {
-      enabled: String(process.env.BANK_TRANSFER_ENABLED || '').trim().toLowerCase() === 'true',
-      accountName: process.env.BANK_TRANSFER_ACCOUNT_NAME || null,
-      bsb: process.env.BANK_TRANSFER_BSB || null,
-      accountNumber: process.env.BANK_TRANSFER_ACCOUNT_NUMBER || null
-    },
-    demo: {
-      enabled: demoEnabled,
-      durationHours: Number(process.env.BILLING_DEMO_DURATION_HOURS || 24),
-      promoEndsAt: process.env.BILLING_DEMO_PROMO_END_AT || null,
-      eligible: demoEnabled && effectivePlan === 'free' && !req.user.demo_used_at
-    },
-    user: {
-      plan: effectivePlan,
-      plan_status: req.user.plan_status || 'active',
-      plan_source: req.user.plan_source || null,
-      premium_until: req.user.premium_until || null,
-      demo_used_at: req.user.demo_used_at || null,
-      demo_expires_at: req.user.demo_expires_at || null,
-      bank_transfer_reference: req.user.bank_transfer_reference || null,
-      paypal_subscription_id: req.user.paypal_subscription_id || null
-    }
+    ok: true,
+    provider: 'placeholder',
+    message: 'Checkout flow is not configured yet. This is a placeholder endpoint.',
+    next: '/app/pricing.html'
   });
-});
-
-// PayPal subscription flow: create subscription and redirect user to PayPal approval page
-router.post('/api/billing/paypal/create-subscription', requireAuth, async (req, res) => {
-  await downgradeExpiredDemoIfNeeded(req.user);
-  const effectivePlan = getEffectivePlanFromUserRow(req.user);
-  if (effectivePlan === 'premium') return res.status(400).json({ error: 'already_premium' });
-  if (!paypal.isPayPalConfigured()) return res.status(400).json({ error: 'paypal_not_configured' });
-
-  try {
-    const base = paypal.safeBaseUrl(req);
-    const returnUrl = `${base}/app/pricing.html?paypal=return`;
-    const cancelUrl = `${base}/app/pricing.html?paypal=cancel`;
-    const created = await paypal.createSubscription({ userId: req.user.id, returnUrl, cancelUrl });
-
-    // Store the pending subscription id on the user record (helps with support/debug)
-    await pool.query('UPDATE users SET paypal_subscription_id=$1 WHERE id=$2', [created.id, req.user.id]);
-    req.user.paypal_subscription_id = created.id;
-    res.json({ ok: true, approveUrl: created.approveUrl, subscriptionId: created.id });
-  } catch (e) {
-    console.error('PayPal create-subscription failed:', e);
-    res.status(500).json({ error: 'paypal_create_failed' });
-  }
-});
-
-router.get('/api/billing/paypal/subscription/:id', requireAuth, async (req, res) => {
-  const subId = req.params.id;
-  if (!paypal.isPayPalConfigured()) return res.status(400).json({ error: 'paypal_not_configured' });
-
-  try {
-    const sub = await paypal.getSubscription(subId);
-
-    // Security: only allow the logged-in user to query/activate their own subscription.
-    const subCustomId = sub?.custom_id ? String(sub.custom_id) : '';
-    const subEmail = sub?.subscriber?.email_address ? String(sub.subscriber.email_address).toLowerCase() : '';
-    const meId = req.user?.id ? String(req.user.id) : '';
-    const meEmail = req.user?.email ? String(req.user.email).toLowerCase() : '';
-
-    const ownerOk = (subCustomId && meId && subCustomId === meId) || (subEmail && meEmail && subEmail === meEmail);
-    if (!ownerOk) {
-      return res.status(403).json({ error: 'forbidden', message: 'Subscription does not belong to this user.' });
-    }
-
-    const status = String(sub?.status || '').toUpperCase();
-    const nextBillingTime =
-      sub?.billing_info?.next_billing_time ||
-      sub?.next_billing_time ||
-      null;
-
-    // If PayPal says ACTIVE, persist Premium in DB (and set premium_until to next billing time for clean expiry if cancelled).
-    if (status === 'ACTIVE') {
-      await pool.query(
-        `UPDATE users
-           SET plan='premium',
-               plan_status='active',
-               plan_source='paypal',
-               paypal_subscription_id=$1,
-               premium_until=COALESCE($2, premium_until)
-         WHERE id=$3`,
-        [sub.id, nextBillingTime, meId]
-      );
-
-      // keep session/user object in sync
-      req.user.plan = 'premium';
-      req.user.plan_status = 'active';
-      req.user.plan_source = 'paypal';
-      req.user.paypal_subscription_id = sub.id;
-      if (nextBillingTime) req.user.premium_until = nextBillingTime;
-    }
-
-    res.json({
-      ok: true,
-      subscription: sub,
-      derived: {
-        status,
-        next_billing_time: nextBillingTime || null,
-        last_payment: sub?.billing_info?.last_payment || null
-      }
-    });
-  } catch (e) {
-    console.error('PayPal get-subscription failed:', e);
-    res.status(500).json({ error: 'paypal_get_failed' });
-  }
-});
-
-router.post('/api/billing/paypal/cancel', requireAuth, async (req, res) => {
-  if (!paypal.isPayPalConfigured()) return res.status(400).json({ error: 'paypal_not_configured' });
-  const subId = req.user?.paypal_subscription_id;
-  if (!subId) return res.status(400).json({ error: 'no_subscription', message: 'No PayPal subscription is linked to this user.' });
-
-  const reason = (req.body && req.body.reason) ? String(req.body.reason).slice(0, 120) : 'User requested cancellation';
-
-  try {
-    // Fetch first so we can keep access until the current paid period ends.
-    const sub = await paypal.getSubscription(subId);
-
-    const subCustomId = sub?.custom_id ? String(sub.custom_id) : '';
-    const subEmail = sub?.subscriber?.email_address ? String(sub.subscriber.email_address).toLowerCase() : '';
-    const meId = req.user?.id ? String(req.user.id) : '';
-    const meEmail = req.user?.email ? String(req.user.email).toLowerCase() : '';
-    const ownerOk = (subCustomId && meId && subCustomId === meId) || (subEmail && meEmail && subEmail === meEmail);
-    if (!ownerOk) {
-      return res.status(403).json({ error: 'forbidden', message: 'Subscription does not belong to this user.' });
-    }
-
-    const nextBillingTime =
-      sub?.billing_info?.next_billing_time ||
-      sub?.next_billing_time ||
-      null;
-
-    await paypal.cancelSubscription(subId, reason);
-
-    // Keep Premium active until next billing time (typical "cancel at period end" behavior).
-    // When nextBillingTime passes, isPremiumActiveFromUserRow() will return false.
-    await pool.query(
-      `UPDATE users
-         SET plan='premium',
-             plan_status='active',
-             plan_source='paypal',
-             premium_until=COALESCE($1, premium_until)
-       WHERE id=$2`,
-      [nextBillingTime, meId]
-    );
-
-    if (nextBillingTime) req.user.premium_until = nextBillingTime;
-
-    return res.json({ ok: true, message: 'Subscription cancelled on PayPal. Premium will remain active until the end of the current billing period.', next_billing_time: nextBillingTime });
-  } catch (e) {
-    console.error('PayPal cancel failed:', e);
-    return res.status(500).json({ error: 'paypal_cancel_failed' });
-  }
-});
-
-// PayPal webhook (public) - signature verified via PayPal API
-router.post(
-  '/api/billing/paypal/webhook',
-  express.raw({ type: 'application/json' }),
-  async (req, res) => {
-    try {
-      if (!paypal.isPayPalConfigured()) return res.status(400).end();
-
-      const verified = await paypal.verifyWebhookSignature({
-        headers: req.headers,
-        rawBodyBuffer: req.body
-      });
-
-      if (!verified) return res.status(400).end();
-
-      const evt = (() => {
-        try {
-          return JSON.parse(req.body.toString('utf8'));
-        } catch {
-          return null;
-        }
-      })();
-      if (!evt) return res.status(400).end();
-
-      const eventType = String(evt.event_type || '').trim();
-      const resource = evt.resource || {};
-
-      // For subscription events, resource.id is the subscription id.
-      const subscriptionId = String(resource.id || '').trim();
-      const status = String(resource.status || '').trim();
-      const customId = String(resource.custom_id || resource.custom_id || evt?.resource?.custom_id || '').trim();
-
-      if (!subscriptionId) return res.status(200).end();
-
-      // Idempotent upsert of the subscription record
-      await pool.query(
-        `INSERT INTO paypal_subscriptions (id, user_id, status, raw)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT (id)
-         DO UPDATE SET status=EXCLUDED.status, raw=EXCLUDED.raw, updated_at=now()`,
-        [subscriptionId, customId || null, status || 'UNKNOWN', evt]
-      ).catch((e) => {
-        // If user_id is NULL because custom_id is missing, insert will fail; still continue.
-        console.warn('paypal_subscriptions upsert warning:', e?.message || e);
-      });
-
-      // Upgrade/downgrade users based on subscription lifecycle.
-      if (customId) {
-        if (eventType === 'BILLING.SUBSCRIPTION.ACTIVATED' || status === 'ACTIVE') {
-          await pool.query(
-            "UPDATE users SET plan='premium', plan_status='active', plan_source='paypal', premium_until=NULL, paypal_subscription_id=$1, bank_transfer_reference=NULL, pending_since=NULL WHERE id=$2",
-            [subscriptionId, customId]
-          );
-        }
-
-        if (
-          eventType === 'BILLING.SUBSCRIPTION.CANCELLED' ||
-          eventType === 'BILLING.SUBSCRIPTION.SUSPENDED' ||
-          status === 'CANCELLED' ||
-          status === 'SUSPENDED'
-        ) {
-          await pool.query(
-            "UPDATE users SET plan='free', plan_status='active', plan_source=NULL, premium_until=NULL WHERE id=$1",
-            [customId]
-          );
-        }
-      }
-
-      return res.status(200).end();
-    } catch (e) {
-      console.error('PayPal webhook handler failed:', e);
-      return res.status(500).end();
-    }
-  }
-);
-
-// Manual bank transfer: create pending request + show instructions to user.
-router.post('/api/billing/bank-transfer/request', requireAuth, async (req, res) => {
-  await downgradeExpiredDemoIfNeeded(req.user);
-  const effectivePlan = getEffectivePlanFromUserRow(req.user);
-  if (effectivePlan === 'premium') return res.status(400).json({ error: 'already_premium' });
-
-  if (String(process.env.BANK_TRANSFER_ENABLED || '').trim().toLowerCase() !== 'true') {
-    return res.status(404).json({ error: 'not_found' });
-  }
-
-  try {
-    const reference = `DM-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
-    const amountCents = BILLING_PREMIUM_PRICE_CENTS;
-
-    await pool.query(
-      `INSERT INTO bank_transfer_requests (user_id, reference_code, amount_cents, currency, status)
-       VALUES ($1,$2,$3,$4,'pending')`,
-      [req.user.id, reference, amountCents, BILLING_CURRENCY]
-    );
-
-    await pool.query(
-      "UPDATE users SET plan_status='pending', plan_source='bank_transfer', bank_transfer_reference=$1, pending_since=now() WHERE id=$2",
-      [reference, req.user.id]
-    );
-
-    req.user.plan_status = 'pending';
-    req.user.plan_source = 'bank_transfer';
-    req.user.bank_transfer_reference = reference;
-
-    res.json({
-      ok: true,
-      reference,
-      amount: Number((amountCents / 100).toFixed(2)),
-      currency: BILLING_CURRENCY,
-      instructions: {
-        accountName: process.env.BANK_TRANSFER_ACCOUNT_NAME || null,
-        bsb: process.env.BANK_TRANSFER_BSB || null,
-        accountNumber: process.env.BANK_TRANSFER_ACCOUNT_NUMBER || null,
-        note: 'Use the reference code in the bank transfer description so we can match your payment.'
-      }
-    });
-  } catch (e) {
-    console.error('Bank transfer request failed:', e);
-    res.status(500).json({ error: 'bank_transfer_failed' });
-  }
-});
-
-// Admin-only: confirm a bank transfer and upgrade the user.
-router.post('/api/billing/bank-transfer/confirm', async (req, res) => {
-  const adminKey = String(process.env.ADMIN_API_KEY || '').trim();
-  if (!adminKey) return res.status(404).json({ error: 'not_found' });
-  if (String(req.headers['x-admin-key'] || '') !== adminKey) return res.status(403).json({ error: 'forbidden' });
-
-  const reference = String(req.body?.reference || '').trim();
-  if (!reference) return res.status(400).json({ error: 'reference_required' });
-
-  try {
-    const { rows } = await pool.query('SELECT user_id FROM bank_transfer_requests WHERE reference_code=$1', [reference]);
-    if (!rows.length) return res.status(404).json({ error: 'not_found' });
-    const userId = rows[0].user_id;
-
-    await pool.query(
-      "UPDATE bank_transfer_requests SET status='confirmed', updated_at=now() WHERE reference_code=$1",
-      [reference]
-    );
-    await pool.query(
-      "UPDATE users SET plan='premium', plan_status='active', plan_source='bank_transfer', premium_until=NULL WHERE id=$1",
-      [userId]
-    );
-    res.json({ ok: true });
-  } catch (e) {
-    console.error('Bank transfer confirm failed:', e);
-    res.status(500).json({ error: 'failed' });
-  }
-});
-
-// One-time demo: let a free user upgrade to premium for 1 day once.
-router.post('/api/billing/demo/activate', requireAuth, async (req, res) => {
-  await downgradeExpiredDemoIfNeeded(req.user);
-  const effectivePlan = getEffectivePlanFromUserRow(req.user);
-  if (!isDemoPromoEnabledNow()) return res.status(404).json({ error: 'not_found' });
-  if (effectivePlan !== 'free') return res.status(400).json({ error: 'not_eligible' });
-  if (req.user.demo_used_at) return res.status(400).json({ error: 'already_used' });
-
-  const now = new Date();
-  const expires = new Date(now.getTime() + demoDurationMs());
-
-  try {
-    await pool.query(
-      "UPDATE users SET plan='premium', plan_status='active', plan_source='demo', premium_until=$1, demo_used_at=now(), demo_expires_at=$1 WHERE id=$2",
-      [expires.toISOString(), req.user.id]
-    );
-
-    req.user.plan = 'premium';
-    req.user.plan_status = 'active';
-    req.user.plan_source = 'demo';
-    req.user.premium_until = expires.toISOString();
-    req.user.demo_used_at = now.toISOString();
-    req.user.demo_expires_at = expires.toISOString();
-
-    res.json({ ok: true, premium_until: expires.toISOString() });
-  } catch (e) {
-    console.error('Demo activation failed:', e);
-    res.status(500).json({ error: 'failed' });
-  }
 });
 
 router.get('/api/billing/test-mode', requireAuth, (req, res) => {
@@ -658,10 +254,7 @@ router.post('/api/billing/simulate-upgrade', requireAuth, async (req, res) => {
   const plan = requested === 'free' ? 'free' : 'premium';
 
   try {
-    const { rows } = await pool.query(
-      "UPDATE users SET plan=$1, plan_status='active', plan_source='admin', premium_until=NULL WHERE id=$2 RETURNING plan",
-      [plan, req.user.id]
-    );
+    const { rows } = await pool.query('UPDATE users SET plan=$1 WHERE id=$2 RETURNING plan', [plan, req.user.id]);
     // Keep req.user in sync for this request.
     if (req.user) req.user.plan = rows[0]?.plan || plan;
     res.json({ ok: true, plan: rows[0]?.plan || plan });
@@ -1190,43 +783,6 @@ router.post('/api/devices/:deviceId/test-now', requireAuth, requirePremium, asyn
   }
 });
 
-// Premium-only: refresh ALL devices immediately (1 request per minute)
-router.post('/api/devices/refresh-all', requireAuth, requirePremium, async (req, res) => {
-  try {
-    // Enforce a 60s cooldown per user
-    const { rows: urows } = await pool.query(
-      'SELECT manual_refresh_last_at FROM users WHERE id=$1',
-      [req.user.id]
-    );
-    const last = urows[0]?.manual_refresh_last_at ? new Date(urows[0].manual_refresh_last_at) : null;
-    const now = new Date();
-    const cooldownMs = 60 * 1000;
-    if (last && !Number.isNaN(last.getTime())) {
-      const elapsed = now.getTime() - last.getTime();
-      if (elapsed < cooldownMs) {
-        const retryAfterSeconds = Math.max(1, Math.ceil((cooldownMs - elapsed) / 1000));
-        res.set('Retry-After', String(retryAfterSeconds));
-        return res.status(429).json({
-          error: 'Refresh is limited to once per minute for Premium users.',
-          retryAfterSeconds
-        });
-      }
-    }
-
-    // Mark refresh time + make all devices immediately due for the worker
-    await pool.query('UPDATE users SET manual_refresh_last_at = now() WHERE id=$1', [req.user.id]);
-    const { rowCount } = await pool.query(
-      "UPDATE devices SET last_check = now() - interval '365 days' WHERE user_id=$1",
-      [req.user.id]
-    );
-
-    res.json({ ok: true, queued_devices: rowCount || 0, cooldownSeconds: 60 });
-  } catch (e) {
-    console.error('Error refresh-all:', e);
-    res.status(500).json({ error: 'Failed to refresh devices' });
-  }
-});
-
 // --- Device history (for graphs) ---
 router.get('/api/devices/:deviceId/history', requireAuth, async (req, res) => {
   const { deviceId } = req.params;
@@ -1236,18 +792,10 @@ router.get('/api/devices/:deviceId/history', requireAuth, async (req, res) => {
   }
   const limit = Math.min(Math.floor(requestedLimit), 500);
 
-  // Optional ranged history (for charts)
-  const range = String(req.query.range || '').trim();
-  let startTs = null;
-  if (range) {
-    const now = Date.now();
-    if (range === '24h') startTs = new Date(now - 24 * 60 * 60 * 1000);
-    else if (range === '7d') startTs = new Date(now - 7 * 24 * 60 * 60 * 1000);
-    else if (range === '30d') startTs = new Date(now - 30 * 24 * 60 * 60 * 1000);
-    else {
-      return res.status(400).json({ error: 'range must be one of 24h,7d,30d' });
-    }
-  }
+  // Free plan data retention: only expose the last 7 days of history.
+  // (Premium can access longer windows via analytics + reports.)
+  const plan = String(req.user?.plan || 'free');
+  const isFree = plan !== 'premium';
 
   try {
     // Ownership enforced by join on devices.user_id
@@ -1260,36 +808,26 @@ router.get('/api/devices/:deviceId/history', requireAuth, async (req, res) => {
     let historyRows;
     try {
       const { rows } = await pool.query(
-        startTs
-          ? `SELECT ts, status, latency_ms, status_code, detail
-             FROM device_history
-             WHERE device_id=$1 AND ts >= $2
-             ORDER BY ts DESC
-             LIMIT $3`
-          : `SELECT ts, status, latency_ms, status_code, detail
-             FROM device_history
-             WHERE device_id=$1
-             ORDER BY ts DESC
-             LIMIT $2`,
-        startTs ? [deviceId, startTs, limit] : [deviceId, limit]
+        `SELECT ts, status, latency_ms, status_code, detail
+         FROM device_history
+         WHERE device_id=$1
+         ${isFree ? "AND ts >= now() - interval '7 days'" : ''}
+         ORDER BY ts DESC
+         LIMIT $2`,
+        [deviceId, limit]
       );
       historyRows = rows;
     } catch (historyErr) {
       if (historyErr && historyErr.code !== '42703') throw historyErr;
 
       const { rows } = await pool.query(
-        startTs
-          ? `SELECT timestamp AS ts, status, latency AS latency_ms, NULL::int AS status_code, detail
-             FROM device_history
-             WHERE device_id=$1 AND timestamp >= $2
-             ORDER BY timestamp DESC
-             LIMIT $3`
-          : `SELECT timestamp AS ts, status, latency AS latency_ms, NULL::int AS status_code, detail
-             FROM device_history
-             WHERE device_id=$1
-             ORDER BY timestamp DESC
-             LIMIT $2`,
-        startTs ? [deviceId, startTs, limit] : [deviceId, limit]
+        `SELECT timestamp AS ts, status, latency AS latency_ms, NULL::int AS status_code, detail
+         FROM device_history
+         WHERE device_id=$1
+         ${isFree ? "AND timestamp >= now() - interval '7 days'" : ''}
+         ORDER BY timestamp DESC
+         LIMIT $2`,
+        [deviceId, limit]
       );
       historyRows = rows;
     }

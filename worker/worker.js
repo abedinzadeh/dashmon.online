@@ -108,8 +108,36 @@ async function executeDeviceCheck(device) {
 }
 
 async function retentionCleanup() {
-  // Keep 90 days
-  await pool.query(`DELETE FROM device_history WHERE timestamp < now() - interval '90 days'`);
+  // Data retention:
+  // - Free users: keep only N days (default 7)
+  // - Premium users: keep M days (default 90)
+  // Server stores history in UTC; this is purely about how much history we retain.
+  const freeDaysRaw = Number(process.env.FREE_HISTORY_DAYS || 7);
+  const premiumDaysRaw = Number(process.env.PREMIUM_HISTORY_DAYS || 90);
+  const freeDays = Number.isFinite(freeDaysRaw) && freeDaysRaw > 0 ? Math.floor(freeDaysRaw) : 7;
+  const premiumDays = Number.isFinite(premiumDaysRaw) && premiumDaysRaw > 0 ? Math.floor(premiumDaysRaw) : 90;
+
+  // Free users: stricter retention
+  await pool.query(
+    `DELETE FROM device_history h
+     USING devices d, users u
+     WHERE h.device_id = d.id
+       AND d.user_id = u.id
+       AND u.plan = 'free'
+       AND h.timestamp < now() - ($1 * interval '1 day')`,
+    [freeDays]
+  );
+
+  // Premium users: longer retention (defaults to the historical 90 days)
+  await pool.query(
+    `DELETE FROM device_history h
+     USING devices d, users u
+     WHERE h.device_id = d.id
+       AND d.user_id = u.id
+       AND u.plan = 'premium'
+       AND h.timestamp < now() - ($1 * interval '1 day')`,
+    [premiumDays]
+  );
 }
 
 async function getDueDevices() {
@@ -341,9 +369,17 @@ async function tick() {
 async function main() {
   console.log('dashmon worker started');
   await ensureAlertEventsTable();
+
+  // Retention cleanup can be expensive on large datasets.
+  // Run it periodically instead of on every loop.
+  let lastRetentionAt = 0;
   while (true) {
     try {
-      await retentionCleanup();
+      const now = Date.now();
+      if (!lastRetentionAt || (now - lastRetentionAt) > 60 * 60 * 1000) {
+        await retentionCleanup();
+        lastRetentionAt = now;
+      }
       await tick();
     } catch (e) {
       console.error('worker tick error:', e);
