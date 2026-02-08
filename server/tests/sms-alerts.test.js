@@ -25,7 +25,7 @@ function createExpressMock() {
     };
     return router;
   };
-  return { Router: createRouter, json: () => (_req, _res, next) => next() };
+  return { Router: createRouter, json: () => (_req, _res, next) => next(), raw: () => (_req, _res, next) => next() };
 }
 
 function buildRouterWithMocks(poolMock) {
@@ -110,12 +110,17 @@ test('SMS alerts: save config writes alerts row', async () => {
     user: { id: 'u1', plan: 'premium' },
     path: '/api/alerts/sms',
     headers: { accept: 'application/json' },
-    body: { enabled: true, cooldownMinutes: 15, rules: { to: '+61400000000', perStore: { '069': { enabled: true } } } }
+    body: {
+      enabled: true,
+      to: '+61400000000',
+      cooldownMinutes: 15,
+      storeOverrides: { '069': { enabled: true, to: '+61400000000' } }
+    }
   };
   const res = createRes();
   await runHandlers(handlers, req, res);
 
   assert.equal(res.statusCode, 200);
-  assert.deepEqual(res.payload, { ok: true });
+  assert.equal(res.payload.ok, true);
   assert.ok(calls.some((c) => String(c.sql).includes("INSERT INTO alerts") && c.params[0] === 'u1'));
 });

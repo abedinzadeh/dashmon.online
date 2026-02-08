@@ -9,9 +9,43 @@ CREATE TABLE IF NOT EXISTS users (
     name TEXT,
     provider TEXT NOT NULL DEFAULT 'google',
     plan TEXT NOT NULL DEFAULT 'free', -- free | premium
+    plan_status TEXT NOT NULL DEFAULT 'active', -- active | pending | canceled
+    plan_source TEXT, -- paypal | bank_transfer | demo | admin
+    premium_until TIMESTAMPTZ,
+    paypal_subscription_id TEXT,
+    bank_transfer_reference TEXT,
+    pending_since TIMESTAMPTZ,
+    demo_used_at TIMESTAMPTZ,
+    demo_expires_at TIMESTAMPTZ,
     timezone TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Bank transfer requests (manual payment)
+CREATE TABLE IF NOT EXISTS bank_transfer_requests (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    reference_code TEXT NOT NULL UNIQUE,
+    amount_cents INT NOT NULL,
+    currency TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_bank_transfer_requests_user ON bank_transfer_requests(user_id);
+
+-- PayPal subscriptions (idempotent webhook processing)
+CREATE TABLE IF NOT EXISTS paypal_subscriptions (
+    id TEXT PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status TEXT NOT NULL,
+    raw JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_paypal_subscriptions_user ON paypal_subscriptions(user_id);
 
 -- Stores (formerly projects)
 CREATE TABLE IF NOT EXISTS stores (

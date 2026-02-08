@@ -37,7 +37,8 @@ function createExpressMock() {
 
   return {
     Router: createRouter,
-    json: () => (_req, _res, next) => next()
+    json: () => (_req, _res, next) => next(),
+    raw: () => (_req, _res, next) => next()
   };
 }
 

@@ -1,8 +1,7 @@
-const { normalizePlan } = require('./plan-limits');
+const { isPremiumActiveFromUserRow } = require('./plan-limits');
 
 function requirePremium(req, res, next) {
-  const plan = normalizePlan(req.user?.plan);
-  if (plan === 'premium') return next();
+  if (isPremiumActiveFromUserRow(req.user)) return next();
 
   const wantsJson =
     (typeof req.path === 'string' && req.path.startsWith('/api/')) ||

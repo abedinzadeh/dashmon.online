@@ -250,9 +250,15 @@ function ensureLineChart(canvasId, label, points, existing) {
 
     const badge = $('userPlanBadge');
     if (badge && state.user) {
-      badge.textContent = (state.user.plan || 'free').toUpperCase();
-      badge.className = 'ml-3 px-2 py-1 rounded-full text-xs font-bold ' +
-        (state.user.plan === 'premium' ? 'bg-yellow-600 text-black' : 'bg-gray-700 text-white');
+      const plan = String(state.user.plan || 'free').toLowerCase();
+      if (plan === 'premium') {
+        // Keep the visible plan badge as "Premium" (not "Billing") and show a crown icon.
+        badge.innerHTML = '<i class="fas fa-crown mr-1"></i> Premium';
+        badge.className = 'user-plan-badge ml-2';
+      } else {
+        badge.textContent = 'Free';
+        badge.className = 'user-plan-badge free ml-2';
+      }
     }
 
     const smsBtn = $('smsAlertsBtn');
@@ -261,6 +267,24 @@ function ensureLineChart(canvasId, label, points, existing) {
       else smsBtn.classList.add('hidden');
     }
 
+
+    // Billing / Upgrade entry point in navbar
+    const upgradeBtn = $('upgradePageBtn');
+    if (upgradeBtn && state.user) {
+      // Always show the entry point; change label based on plan
+      upgradeBtn.classList.remove('hidden');
+      if (state.user.plan === 'premium') {
+        upgradeBtn.title = 'Manage billing';
+        upgradeBtn.href = '/app/pricing.html';
+        upgradeBtn.innerHTML = '<i class="fas fa-credit-card mr-2"></i> Billing';
+        upgradeBtn.className = 'bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-semibold';
+      } else {
+        upgradeBtn.title = 'Upgrade to Premium';
+        upgradeBtn.href = '/app/pricing.html';
+        upgradeBtn.innerHTML = '<i class="fas fa-crown mr-2"></i> Upgrade';
+        upgradeBtn.className = 'bg-yellow-500 hover:bg-yellow-600 text-black px-4 py-2 rounded-lg font-semibold';
+      }
+    }
     const soundToggle = $('soundToggle');
     if (soundToggle) {
       soundToggle.innerHTML = state.soundOn

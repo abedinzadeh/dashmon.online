@@ -27,7 +27,7 @@
   <main class="max-w-5xl mx-auto px-4 py-8">
     <div class="mb-6">
       <h1 class="text-3xl font-extrabold">Plans</h1>
-      <p class="text-slate-300 mt-2">Upgrade to Premium to unlock faster checks and Premium-only actions.</p>
+      <p class="text-slate-300 mt-2">Upgrade to Premium to unlock faster checks and paid-only features.</p>
     </div>
 
     <div id="statusBanner" class="hidden mb-6 rounded-xl border border-slate-800 bg-slate-900 p-4">
@@ -39,6 +39,55 @@
         </div>
       </div>
     </div>
+
+    <div id="subscriptionCard" class="hidden mb-6 rounded-2xl border border-slate-800 bg-slate-900 p-6">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <h2 class="text-xl font-bold">Your subscription</h2>
+          <p class="text-slate-300 text-sm mt-1">Status and renewal details for your account.</p>
+        </div>
+        <span id="subBadge" class="text-xs bg-slate-800 px-2 py-1 rounded-full">—</span>
+      </div>
+
+      <div class="mt-4 grid md:grid-cols-2 gap-4 text-sm">
+        <div class="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+          <div class="text-slate-400">Plan</div>
+          <div class="font-semibold" id="subPlan">—</div>
+        </div>
+        <div class="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+          <div class="text-slate-400">Provider</div>
+          <div class="font-semibold" id="subProvider">—</div>
+        </div>
+        <div class="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+          <div class="text-slate-400">Next billing / expiry</div>
+          <div class="font-semibold" id="subNextBilling">—</div>
+        </div>
+        <div class="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+          <div class="text-slate-400">Last payment</div>
+          <div class="font-semibold" id="subLastPayment">—</div>
+        </div>
+        <div class="rounded-xl border border-slate-800 bg-slate-950/40 p-4 md:col-span-2">
+          <div class="text-slate-400">PayPal subscription ID</div>
+          <div class="font-mono text-slate-200 break-all" id="subId">—</div>
+        </div>
+      </div>
+
+      <div class="mt-4 flex flex-wrap items-center gap-2">
+        <button id="cancelPayPalBtn" class="hidden bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg text-sm">
+          <i class="fas fa-ban mr-2"></i>Cancel PayPal subscription
+        </button>
+        <a id="managePayPalLink" class="hidden bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-lg text-sm" target="_blank" rel="noreferrer">
+          <i class="fab fa-paypal mr-2"></i>Manage in PayPal
+        </a>
+      </div>
+
+      <div class="mt-3 text-xs text-slate-400 leading-relaxed">
+        A monthly subscription renews automatically on the <b>next billing time</b>. If you cancel, PayPal stops future charges.
+        Dashmon keeps Premium active until the end of the current paid period (the next billing time shown above).
+      </div>
+    </div>
+
+
 
     <div class="grid md:grid-cols-2 gap-6">
       <div class="rounded-2xl border border-slate-800 bg-slate-900 p-6">
@@ -64,7 +113,7 @@
           <h2 class="text-xl font-bold">Premium</h2>
           <span class="text-xs bg-yellow-600 text-black px-2 py-1 rounded-full font-semibold">Recommended</span>
         </div>
-        <div class="mt-4 text-4xl font-extrabold">$19<span class="text-base font-medium text-slate-400">/mo</span></div>
+        <div class="mt-4 text-4xl font-extrabold">$<span id="premiumPrice">19</span><span class="text-base font-medium text-slate-400">/mo</span></div>
         <ul class="mt-5 space-y-2 text-slate-200">
           <li><i class="fas fa-check text-green-400 mr-2"></i>Up to <b>10 projects</b></li>
           <li><i class="fas fa-check text-green-400 mr-2"></i>Up to <b>15 devices</b> per project</li>
@@ -74,21 +123,35 @@
         </ul>
         <div class="mt-6 space-y-2">
           <button id="upgradeBtn" class="w-full bg-yellow-600 hover:bg-yellow-500 text-black font-semibold py-2 rounded-xl">
-            Upgrade to Premium
+            Subscribe with PayPal
+          </button>
+          <button id="bankTransferBtn" class="w-full bg-slate-800 hover:bg-slate-700 py-2 rounded-xl">
+            Pay via Bank Transfer
           </button>
           <button id="demoUpgradeBtn" class="hidden w-full bg-slate-800 hover:bg-slate-700 py-2 rounded-xl">
-            Activate Premium (Demo)
+            Try Premium free for 1 day
           </button>
         </div>
       </div>
     </div>
 
-    <div class="mt-10 rounded-2xl border border-slate-800 bg-slate-900 p-6">
-      <h3 class="text-lg font-bold">Payment integration</h3>
-      <p class="text-slate-300 mt-2">
-        This build includes a placeholder purchase flow. To connect real subscriptions, wire <code class="bg-slate-800 px-2 py-1 rounded">/api/billing/checkout</code>
-        to your billing provider (Stripe/Chargebee) and handle webhook updates to set the user <code class="bg-slate-800 px-2 py-1 rounded">plan</code>.
-      </p>
+    <!-- Bank transfer modal -->
+    <div id="bankModal" class="hidden fixed inset-0 z-50">
+      <div class="absolute inset-0 bg-black/60"></div>
+      <div class="absolute inset-0 flex items-center justify-center p-4">
+        <div class="w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-950 shadow-xl">
+          <div class="flex items-center justify-between px-5 py-4 border-b border-slate-800">
+            <div class="font-bold">Bank transfer instructions</div>
+            <button id="bankModalClose" class="text-slate-400 hover:text-slate-200"><i class="fas fa-times"></i></button>
+          </div>
+          <div class="px-5 py-4 max-h-[70vh] overflow-auto">
+            <div id="bankModalBody" class="text-slate-200 text-sm space-y-3"></div>
+          </div>
+          <div class="px-5 py-4 border-t border-slate-800 flex justify-end gap-2">
+            <button id="bankModalOk" class="bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-xl">Close</button>
+          </div>
+        </div>
+      </div>
     </div>
   </main>
 
@@ -119,37 +182,219 @@
       return r.json();
     }
 
+    
+    function fmtDateDual(iso) {
+      if (!iso) return '—';
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return String(iso);
+      const local = d.toLocaleString(undefined, { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+      const utc = d.toISOString().replace('T', ' ').replace('Z', ' UTC');
+      return `${local} ( ${utc} )`;
+    }
+
+    function showSubscriptionCard() {
+      const el = document.getElementById('subscriptionCard');
+      if (el) el.classList.remove('hidden');
+    }
+
+    async function loadPayPalDetailsIfAny(cfg, me) {
+      const subId = me?.paypal_subscription_id || cfg?.user?.paypal_subscription_id;
+      if (!subId) return null;
+
+      try {
+        const r = await apiFetch(`/api/billing/paypal/subscription/${encodeURIComponent(subId)}`);
+        const p = await r.json().catch(() => null);
+        if (!r.ok) return null;
+        return p;
+      } catch (e) {
+        console.error(e);
+        return null;
+      }
+    }
+
+    function niceProviderFromState(user) {
+      const plan = String(user?.plan || 'free');
+      const planStatus = String(user?.plan_status || 'active');
+      const planSource = user?.plan_source ? String(user.plan_source) : '';
+      const hasPayPal = !!(user?.paypal_subscription_id);
+      const hasBank = planStatus === 'pending' && !!user?.bank_transfer_reference;
+
+      if (hasPayPal || planSource.toLowerCase() === 'paypal') return 'PayPal';
+      if (hasBank || planSource.toLowerCase() === 'bank_transfer') return 'Bank transfer';
+      if (planSource) return planSource.replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
+      if (plan === 'premium') return 'Manual';
+      return '—';
+    }
+
+    async function renderSubscription(cfg, me) {
+      const card = document.getElementById('subscriptionCard');
+      if (!card) return;
+
+      const mergedUser = Object.assign({}, (me || {}), (cfg?.user || {}));
+
+      // default
+      document.getElementById('subPlan').textContent = (mergedUser?.plan || 'free');
+      document.getElementById('subProvider').textContent = niceProviderFromState(mergedUser);
+      document.getElementById('subNextBilling').textContent = mergedUser?.premium_until
+        ? fmtDateDual(mergedUser.premium_until)
+        : (String(mergedUser?.plan || 'free') === 'premium' ? '— (no renewal info)' : '—');
+      document.getElementById('subLastPayment').textContent = '—';
+      document.getElementById('subId').textContent = mergedUser?.paypal_subscription_id
+        ? String(mergedUser.paypal_subscription_id)
+        : (String(mergedUser?.plan || 'free') === 'premium' ? '— (not linked)' : '—');
+      document.getElementById('subBadge').textContent = String(mergedUser?.plan || 'free').toUpperCase();
+
+      const manageLink = document.getElementById('managePayPalLink');
+      const cancelBtn = document.getElementById('cancelPayPalBtn');
+
+      // PayPal management links if configured
+      // Only show PayPal management link if PayPal is configured (subscription may or may not exist)
+      if (cfg?.paypal?.enabled) {
+        const env = String(cfg?.paypal?.env || 'sandbox');
+        const base = env === 'live' ? 'https://www.paypal.com' : 'https://www.sandbox.paypal.com';
+        manageLink.href = base + '/myaccount/autopay/';
+        manageLink.classList.remove('hidden');
+      }
+
+      // If there's a subscription id, fetch details and fill the card.
+      const details = await loadPayPalDetailsIfAny(cfg, mergedUser);
+      if (details?.subscription) {
+        showSubscriptionCard();
+        const s = details.subscription;
+        const derived = details.derived || {};
+        const status = String(derived.status || s.status || '').toUpperCase();
+
+        document.getElementById('subPlan').textContent = (mergedUser?.plan || 'free') + (status ? ` (${status})` : '');
+        document.getElementById('subProvider').textContent = 'PayPal';
+        document.getElementById('subBadge').textContent = status || 'PAYPAL';
+
+        const nextBilling = derived.next_billing_time || s?.billing_info?.next_billing_time || s?.next_billing_time || null;
+        document.getElementById('subNextBilling').textContent = fmtDateDual(nextBilling || mergedUser?.premium_until);
+
+        const lp = derived.last_payment || s?.billing_info?.last_payment;
+        if (lp?.amount?.value) {
+          document.getElementById('subLastPayment').textContent = `${lp.amount.currency_code || ''} ${lp.amount.value} @ ${fmtDateDual(lp.time)}`;
+        }
+
+        document.getElementById('subId').textContent = s.id || (mergedUser?.paypal_subscription_id || '—');
+
+        // Allow cancellation from Dashmon (optional)
+        cancelBtn.classList.remove('hidden');
+        cancelBtn.addEventListener('click', async () => {
+          if (!confirm('Cancel your PayPal subscription?\n\nThis stops future charges. Premium will remain active until the end of the current billing period.')) return;
+          const r = await apiFetch('/api/billing/paypal/cancel', { method: 'POST', body: { reason: 'User cancelled from Dashmon' } });
+          const p = await r.json().catch(() => null);
+          if (!r.ok) {
+            alert(p?.error || 'Failed to cancel subscription');
+            return;
+          }
+          showBanner('Cancelled', p?.message || 'Subscription cancelled.');
+          setTimeout(() => window.location.reload(), 800);
+        });
+      } else {
+        // Show card for non-PayPal states too (bank transfer/demo/premium)
+        showSubscriptionCard();
+        cancelBtn.classList.add('hidden');
+
+        // For Premium users without a PayPal subscription id, make it explicit (avoid "empty" look).
+        const plan = String(mergedUser?.plan || 'free');
+        if (plan === 'premium' && !mergedUser?.paypal_subscription_id) {
+          const nextText = document.getElementById('subNextBilling');
+          if (nextText && nextText.textContent === '—') nextText.textContent = '— (no renewal data)';
+          const idText = document.getElementById('subId');
+          if (idText && idText.textContent === '—') idText.textContent = '— (not linked to PayPal)';
+        }
+      }
+    }
+
+function openBankModal(html) {
+      const m = document.getElementById('bankModal');
+      document.getElementById('bankModalBody').innerHTML = html;
+      m.classList.remove('hidden');
+    }
+
+    function closeBankModal() {
+      document.getElementById('bankModal').classList.add('hidden');
+    }
+
     async function init() {
       const me = await loadMe();
       if (!me) return;
 
-      if (me.plan === 'premium') {
-        showBanner('You are Premium', 'Premium features are unlocked for your account.');
+      const cfg = await apiFetch('/api/billing/config').then(r => r.json());
+      if (cfg?.premiumPrice) {
+        document.getElementById('premiumPrice').textContent = cfg.premiumPrice;
+      }
+
+      const plan = cfg?.user?.plan || me.plan;
+      const planStatus = cfg?.user?.plan_status || me.plan_status || 'active';
+
+      if (plan === 'premium') {
+        const until = cfg?.user?.premium_until;
+        const extra = until ? ` Premium expires at ${new Date(until).toUTCString()}.` : '';
+        showBanner('You are Premium', `Premium features are unlocked for your account.${extra}`);
         document.getElementById('upgradeBtn').disabled = true;
         document.getElementById('upgradeBtn').textContent = 'Premium active';
         document.getElementById('downgradeBtn').classList.remove('hidden');
       } else {
-        showBanner('You are on Free', 'Upgrade to Premium to unlock faster checks and Premium-only actions.');
+        if (planStatus === 'pending' && cfg?.user?.bank_transfer_reference) {
+          showBanner('Bank transfer pending', `We are waiting for your bank transfer. Reference: ${cfg.user.bank_transfer_reference}`);
+        } else {
+          showBanner('You are on Free', 'Upgrade to Premium to unlock faster checks and paid-only features.');
+        }
       }
 
-      document.getElementById('upgradeBtn').addEventListener('click', async () => {
-        const res = await apiFetch('/api/billing/checkout', { method: 'POST' });
-        const payload = await res.json().catch(() => null);
-        if (!res.ok) {
-          alert(payload?.error || 'Failed to start checkout');
+      
+      // Subscription status panel
+      await renderSubscription(cfg, me);
+
+// PayPal subscription
+      const upgradeBtn = document.getElementById('upgradeBtn');
+      if (!cfg?.paypal?.enabled) {
+        upgradeBtn.disabled = true;
+        upgradeBtn.textContent = 'PayPal not configured';
+      } else {
+        upgradeBtn.addEventListener('click', async () => {
+          const r = await apiFetch('/api/billing/paypal/create-subscription', { method: 'POST' });
+          const p = await r.json().catch(() => null);
+          if (!r.ok) {
+            alert(p?.error || 'Failed to start PayPal checkout');
+            return;
+          }
+          window.location.href = p.approveUrl;
+        });
+      }
+
+      // Bank transfer
+      document.getElementById('bankTransferBtn').addEventListener('click', async () => {
+        const r = await apiFetch('/api/billing/bank-transfer/request', { method: 'POST' });
+        const p = await r.json().catch(() => null);
+        if (!r.ok) {
+          alert(p?.error || 'Failed to create bank transfer request');
           return;
         }
-        alert(payload?.message || 'Checkout placeholder');
+        const instr = p.instructions || {};
+        const html = `
+          <div class="text-slate-300">Amount</div>
+          <div class="font-semibold">${p.currency} ${p.amount}</div>
+          <div class="mt-3 text-slate-300">Reference (required)</div>
+          <div class="font-mono text-yellow-400 text-lg">${p.reference}</div>
+          <div class="mt-4 grid grid-cols-1 gap-2">
+            <div><span class="text-slate-400">Account name:</span> <span class="font-semibold">${instr.accountName || '-'}</span></div>
+            <div><span class="text-slate-400">BSB:</span> <span class="font-semibold">${instr.bsb || '-'}</span></div>
+            <div><span class="text-slate-400">Account number:</span> <span class="font-semibold">${instr.accountNumber || '-'}</span></div>
+          </div>
+          <div class="mt-4 text-slate-400">${instr.note || ''}</div>
+        `;
+        openBankModal(html);
       });
 
-      // Demo-only upgrade path (optional)
-      const testMode = await apiFetch('/api/billing/test-mode').then(r => r.json()).catch(() => ({ enabled: false }));
-      if (testMode.enabled) {
-        const btn = document.getElementById('demoUpgradeBtn');
-        btn.classList.remove('hidden');
-        btn.addEventListener('click', async () => {
-          const desired = me.plan === 'premium' ? 'free' : 'premium';
-          const r = await apiFetch('/api/billing/simulate-upgrade', { method: 'POST', body: { plan: desired } });
+      // Demo (one-time 1 day)
+      const demoBtn = document.getElementById('demoUpgradeBtn');
+      if (cfg?.demo?.eligible) {
+        demoBtn.classList.remove('hidden');
+        demoBtn.addEventListener('click', async () => {
+          const r = await apiFetch('/api/billing/demo/activate', { method: 'POST' });
           const p = await r.json().catch(() => null);
           if (!r.ok) {
             alert(p?.error || 'Failed');
@@ -157,22 +402,39 @@
           }
           window.location.reload();
         });
+      }
 
-        const downBtn = document.getElementById('downgradeBtn');
-        downBtn.addEventListener('click', async () => {
-          const r = await apiFetch('/api/billing/simulate-upgrade', { method: 'POST', body: { plan: 'free' } });
-          const p = await r.json().catch(() => null);
-          if (!r.ok) {
-            alert(p?.error || 'Failed');
-            return;
+      // Handle PayPal return (best-effort status check)
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('paypal') === 'return') {
+        const subId = params.get('subscription_id') || params.get('ba_token') || params.get('token');
+        if (subId) {
+          showBanner('PayPal', 'Thanks! Checking your subscription status...');
+          try {
+            const r = await apiFetch(`/api/billing/paypal/subscription/${encodeURIComponent(subId)}`);
+            const p = await r.json().catch(() => null);
+            const status = String(p?.subscription?.status || '').toUpperCase();
+            if (status === 'ACTIVE') {
+              showBanner('Premium activated', 'Your PayPal subscription is active. Premium features are now unlocked.');
+              setTimeout(() => window.location.href = '/app/pricing.html', 800);
+            } else {
+              showBanner('Subscription pending', 'Your PayPal subscription is not active yet. This can take a moment. If it stays pending, contact support.');
+            }
+          } catch (e) {
+            console.error(e);
           }
-          window.location.reload();
-        });
+        }
       }
 
       document.getElementById('logoutBtn').addEventListener('click', async () => {
         await apiFetch('/logout', { method: 'POST' }).catch(() => null);
         window.location.href = '/login.html';
+      });
+
+      document.getElementById('bankModalClose').addEventListener('click', closeBankModal);
+      document.getElementById('bankModalOk').addEventListener('click', closeBankModal);
+      document.getElementById('bankModal').addEventListener('click', (e) => {
+        if (e.target && e.target.id === 'bankModal') closeBankModal();
       });
     }
 

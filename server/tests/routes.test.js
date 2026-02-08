@@ -37,7 +37,8 @@ function createExpressMock() {
 
   return {
     Router: createRouter,
-    json: () => (_req, _res, next) => next()
+    json: () => (_req, _res, next) => next(),
+    raw: () => (_req, _res, next) => next()
   };
 }
 
@@ -464,8 +465,8 @@ test('POST /api/projects enforces free-plan project limit', async () => {
   const poolMock = {
     async query(sql) {
       queryCount += 1;
-      if (sql.includes('SELECT plan FROM users')) {
-        return { rows: [{ plan: 'free' }] };
+      if (sql.includes('FROM users') && sql.includes('plan')) {
+        return { rows: [{ plan: 'free', plan_status: 'active', premium_until: null }] };
       }
       if (sql.includes('COUNT(*)::int AS count FROM stores')) {
         return { rows: [{ count: 3 }] };
@@ -494,7 +495,7 @@ test('POST /api/projects/:projectId/devices enforces per-project device limit', 
   const poolMock = {
     async query(sql) {
       if (sql.includes('SELECT 1 FROM stores')) return { rows: [{ ok: 1 }] };
-      if (sql.includes('SELECT plan FROM users')) return { rows: [{ plan: 'premium' }] };
+      if (sql.includes('FROM users') && sql.includes('plan')) return { rows: [{ plan: 'premium', plan_status: 'active', premium_until: null }] };
       if (sql.includes('COUNT(*)::int AS count FROM devices')) return { rows: [{ count: 15 }] };
       throw new Error('Unexpected SQL for device limit test');
     }
@@ -574,7 +575,7 @@ test('PUT /api/user/preferences/timezone blocks free plan', async () => {
 test('PUT /api/user/preferences/timezone validates timezone for premium plan', async () => {
   const poolMock = {
     async query(sql, params) {
-      if (sql.includes('SELECT plan')) return { rows: [{ plan: 'premium' }] };
+      if (sql.includes('FROM users') && sql.includes('plan')) return { rows: [{ plan: 'premium', plan_status: 'active', premium_until: null }] };
       if (sql.includes('UPDATE users SET timezone')) return { rows: [{ timezone: params[0] }] };
       return { rows: [] };
     }

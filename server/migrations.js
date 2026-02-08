@@ -12,6 +12,46 @@ async function ensureLocalAuthSchema() {
   // Backfill any legacy NULLs
   await pool.query("UPDATE users SET plan='free' WHERE plan IS NULL");
 
+  // Billing / subscription state
+  await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_status TEXT NOT NULL DEFAULT 'active'");
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_source TEXT');
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS premium_until TIMESTAMPTZ');
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS paypal_subscription_id TEXT');
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS bank_transfer_reference TEXT');
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS pending_since TIMESTAMPTZ');
+
+  // One-time demo upgrade (per-user)
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS demo_used_at TIMESTAMPTZ');
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS demo_expires_at TIMESTAMPTZ');
+
+  // Bank transfer requests
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bank_transfer_requests (
+      id BIGSERIAL PRIMARY KEY,
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      reference_code TEXT NOT NULL UNIQUE,
+      amount_cents INT NOT NULL,
+      currency TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_bank_transfer_requests_user ON bank_transfer_requests(user_id)');
+
+  // PayPal subscriptions tracking (idempotent webhook processing)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS paypal_subscriptions (
+      id TEXT PRIMARY KEY,
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      status TEXT NOT NULL,
+      raw JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_paypal_subscriptions_user ON paypal_subscriptions(user_id)');
+
 
 
   // Maintenance windows (per store and per device)

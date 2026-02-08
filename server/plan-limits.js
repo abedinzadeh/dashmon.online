@@ -8,13 +8,33 @@ function normalizePlan(plan) {
   return v === 'premium' ? 'premium' : 'free';
 }
 
+function isPremiumActiveFromUserRow(userRow, now = new Date()) {
+  const plan = normalizePlan(userRow?.plan);
+  if (plan !== 'premium') return false;
+
+  const status = String(userRow?.plan_status || 'active').trim().toLowerCase();
+  if (status !== 'active') return false;
+
+  const until = userRow?.premium_until ? new Date(userRow.premium_until) : null;
+  if (until && !Number.isNaN(until.getTime()) && now >= until) return false;
+
+  return true;
+}
+
+function getEffectivePlanFromUserRow(userRow, now = new Date()) {
+  return isPremiumActiveFromUserRow(userRow, now) ? 'premium' : 'free';
+}
+
 function getPlanLimits(plan) {
   return normalizePlan(plan) === 'premium' ? PLAN_LIMITS.premium : PLAN_LIMITS.free;
 }
 
 async function getUserPlanFromDb(pool, userId) {
-  const { rows } = await pool.query('SELECT plan FROM users WHERE id=$1', [userId]);
-  return normalizePlan(rows[0]?.plan);
+  const { rows } = await pool.query(
+    'SELECT plan, plan_status, premium_until FROM users WHERE id=$1',
+    [userId]
+  );
+  return getEffectivePlanFromUserRow(rows[0]);
 }
 
 async function enforceProjectLimitForUser(pool, userId) {
@@ -36,6 +56,8 @@ async function enforceProjectLimitForUser(pool, userId) {
 module.exports = {
   PLAN_LIMITS,
   normalizePlan,
+  isPremiumActiveFromUserRow,
+  getEffectivePlanFromUserRow,
   getPlanLimits,
   getUserPlanFromDb,
   enforceProjectLimitForUser

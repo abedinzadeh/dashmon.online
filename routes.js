@@ -341,7 +341,7 @@ router.post('/api/billing/paypal/create-subscription', requireAuth, async (req, 
     const created = await paypal.createSubscription({ userId: req.user.id, returnUrl, cancelUrl });
 
     // Store the pending subscription id on the user record (helps with support/debug)
-    await pool.query('UPDATE users SET paypal_subscription_id=$1 WHERE id=$2', [created.id, req.user.id]);
+    await pool.query("UPDATE users SET paypal_subscription_id=$1, plan_status='pending', plan_source='paypal' WHERE id=$2", [created.id, req.user.id]);
     req.user.paypal_subscription_id = created.id;
     res.json({ ok: true, approveUrl: created.approveUrl, subscriptionId: created.id });
   } catch (e) {
